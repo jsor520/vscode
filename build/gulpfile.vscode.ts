@@ -523,12 +523,13 @@ function packageTask(platform: string, arch: string, sourceFolderName: string, d
 			all = es.merge(all, shortcut, policyDest);
 		}
 
+		const darwinAssetsCar = 'resources/darwin/code.car';
 		const electronConfig = {
 			...config,
 			platform,
 			arch: arch === 'armhf' ? 'arm' : arch,
 			ffmpegChromium: false,
-			darwinAssetsCar: 'resources/darwin/code.car',
+			...(fs.existsSync(darwinAssetsCar) ? { darwinAssetsCar } : {}),
 			...(embedded ? {
 				darwinMiniAppName: embedded.nameShort,
 				darwinMiniAppBundleIdentifier: embedded.darwinBundleIdentifier,

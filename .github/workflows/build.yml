@@ -76,6 +76,10 @@ jobs:
         run: npx gulp ${{ matrix.gulp_target }}
 
       # --- Windows 安装器 ---
+      - name: Prepare Windows inno-updater
+        if: matrix.platform == 'win32'
+        run: npx gulp vscode-win32-x64-inno-updater
+
       - name: Build Windows User Setup
         if: matrix.platform == 'win32'
         run: npx gulp vscode-win32-x64-user-setup
@@ -88,6 +92,10 @@ jobs:
           VSCODE_ARCH: ${{ matrix.arch }}
 
       # --- Linux deb ---
+      - name: Prepare Linux deb
+        if: matrix.platform == 'linux'
+        run: npx gulp vscode-linux-x64-prepare-deb
+
       - name: Build Linux deb
         if: matrix.platform == 'linux'
         run: npx gulp vscode-linux-x64-build-deb
