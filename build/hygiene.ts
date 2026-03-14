@@ -38,8 +38,12 @@ export function hygiene(some: NodeJS.ReadWriteStream | string[] | undefined, run
 		const product = JSON.parse(file.contents!.toString('utf8'));
 
 		if (product.extensionsGallery) {
-			console.error(`product.json: Contains 'extensionsGallery'`);
-			errorCount++;
+			const serviceUrl = product.extensionsGallery.serviceUrl || '';
+			// Allow Open VSX gallery (non-Microsoft marketplace)
+			if (!serviceUrl.includes('open-vsx.org')) {
+				console.error(`product.json: Contains 'extensionsGallery' with non-Open-VSX serviceUrl`);
+				errorCount++;
+			}
 		}
 
 		this.emit('data', file);

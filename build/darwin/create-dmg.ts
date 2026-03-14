@@ -158,11 +158,12 @@ async function main(buildDir?: string, outDir?: string): Promise<void> {
 	const appRoot = path.join(buildDir, `VSCode-darwin-${arch}`);
 	const appName = product.nameLong + '.app';
 	const appPath = path.join(appRoot, appName);
-	const dmgName = `VSCode-darwin-${arch}`;
+	const dmgName = `${product.applicationName}-darwin-${arch}`;
 	const artifactPath = path.join(outDir, `${dmgName}.dmg`);
-	const backgroundPath = path.join(import.meta.dirname, `dmg-background-${quality}.tiff`);
+	const qualityBackground = path.join(import.meta.dirname, `dmg-background-${quality}.tiff`);
+	const backgroundPath = fs.existsSync(qualityBackground) ? qualityBackground : path.join(import.meta.dirname, 'dmg-background-insider.tiff');
 	const diskIconPath = path.join(root, 'resources', 'darwin', 'code.icns');
-	let title = 'Code OSS';
+	let title = product.nameShort;
 	switch (quality) {
 		case 'stable':
 			title = 'VS Code';
@@ -172,6 +173,9 @@ async function main(buildDir?: string, outDir?: string): Promise<void> {
 			break;
 		case 'exploration':
 			title = 'VS Code Exploration';
+			break;
+		default:
+			title = product.nameShort;
 			break;
 	}
 

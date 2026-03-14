@@ -1,0 +1,100 @@
+name: XuanJi IDE Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '发布版本号 (如 1.0.0-alpha.0)'
+        required: true
+        default: '1.0.0-alpha.0'
+      prerelease:
+        description: '标记为预发布版本'
+        required: true
+        type: boolean
+        default: true
+
+jobs:
+  build:
+    uses: ./.github/workflows/build.yml
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    name: Create GitHub Release
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download all installer artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+          pattern: xuanji-installer-*
+
+      - name: Collect release files
+        shell: bash
+        run: |
+          mkdir -p release-files
+          find release-artifacts -type f \( -name "*.exe" -o -name "*.dmg" -o -name "*.deb" -o -name "*.AppImage" \) -exec cp {} release-files/ \;
+          echo "=== 发布文件 ==="
+          ls -lh release-files/
+
+      - name: Read release notes
+        id: notes
+        shell: bash
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          NOTES_FILE="docs/release-notes/v${VERSION}.md"
+          if [ -f "$NOTES_FILE" ]; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+            # 使用 delimiter 处理多行内容
+            {
+              echo "body<<RELEASE_NOTES_EOF"
+              cat "$NOTES_FILE"
+              echo ""
+              echo "RELEASE_NOTES_EOF"
+            } >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            echo "body=XuanJi IDE v${VERSION}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          TAG="v${VERSION}"
+          PRERELEASE="${{ github.event.inputs.prerelease }}"
+
+          # 创建 tag
+          git tag "$TAG" || true
+          git push origin "$TAG" || true
+
+          # 构建 gh release 命令
+          ARGS=(
+            release create "$TAG"
+            --title "XuanJi IDE v${VERSION}"
+            --notes "${{ steps.notes.outputs.body }}"
+          )
+
+          if [ "$PRERELEASE" = "true" ]; then
+            ARGS+=(--prerelease)
+          fi
+
+          # 添加发布文件
+          for file in release-files/*; do
+            if [ -f "$file" ]; then
+              ARGS+=("$file")
+            fi
+          done
+
+          gh "${ARGS[@]}"
+
+          echo "=== Release 创建成功 ==="
+          echo "Tag: $TAG"
+          echo "Pre-release: $PRERELEASE"

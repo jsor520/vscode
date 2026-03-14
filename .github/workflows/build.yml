@@ -6,6 +6,7 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+  workflow_call:
 
 jobs:
   build:
@@ -30,12 +31,13 @@ jobs:
     name: Build (${{ matrix.platform }}-${{ matrix.arch }})
 
     env:
-      ELECTRON_SKIP_BINARY_DOWNLOAD: 1
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -53,7 +55,9 @@ jobs:
             libx11-xcb-dev \
             libxkbfile-dev \
             libnotify-bin \
-            libkrb5-dev
+            libkrb5-dev \
+            fakeroot \
+            dpkg
 
       - name: Install dependencies (with retry)
         uses: nick-fields/retry@v3
@@ -62,7 +66,6 @@ jobs:
           max_attempts: 3
           command: npm ci
         env:
-          ELECTRON_SKIP_BINARY_DOWNLOAD: 1
           PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
 
       - name: Compile
@@ -71,9 +74,92 @@ jobs:
       - name: Package (${{ matrix.gulp_target }})
         run: npx gulp ${{ matrix.gulp_target }}
 
-      - name: Upload artifact
+      # --- Windows 安装器 ---
+      - name: Build Windows User Setup
+        if: matrix.platform == 'win32'
+        run: npx gulp vscode-win32-x64-user-setup
+
+      # --- macOS DMG ---
+      - name: Build macOS DMG
+        if: matrix.platform == 'darwin'
+        run: npx ts-node build/darwin/create-dmg.ts ../VSCode-darwin-${{ matrix.arch }} .build
+        env:
+          VSCODE_ARCH: ${{ matrix.arch }}
+
+      # --- Linux deb ---
+      - name: Build Linux deb
+        if: matrix.platform == 'linux'
+        run: npx gulp vscode-linux-x64-build-deb
+
+      # --- Linux AppImage ---
+      - name: Build Linux AppImage
+        if: matrix.platform == 'linux'
+        run: |
+          chmod +x build/linux/appimage/build-appimage.sh
+          bash build/linux/appimage/build-appimage.sh ../VSCode-linux-x64 .build
+
+      # --- 产物重命名 ---
+      - name: Read xuanjiVersion
+        id: version
+        shell: bash
+        run: |
+          VERSION=$(node -e "console.log(JSON.parse(require('fs').readFileSync('product.json','utf8')).xuanjiVersion)")
+          echo "XUANJI_VERSION=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Rename Windows installer
+        if: matrix.platform == 'win32'
+        shell: bash
+        run: |
+          VERSION="${{ steps.version.outputs.XUANJI_VERSION }}"
+          mkdir -p .build/installers
+          # 查找 Inno Setup 输出
+          SETUP_FILE=$(find .build -name "*Setup*.exe" -type f | head -1)
+          if [ -n "$SETUP_FILE" ]; then
+            cp "$SETUP_FILE" ".build/installers/XuanJi-Setup-${VERSION}.exe"
+          fi
+
+      - name: Rename macOS DMG
+        if: matrix.platform == 'darwin'
+        shell: bash
+        run: |
+          VERSION="${{ steps.version.outputs.XUANJI_VERSION }}"
+          mkdir -p .build/installers
+          DMG_FILE=$(find .build -name "*.dmg" -type f | head -1)
+          if [ -n "$DMG_FILE" ]; then
+            cp "$DMG_FILE" ".build/installers/XuanJi-${VERSION}.dmg"
+          fi
+
+      - name: Rename Linux packages
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: |
+          VERSION="${{ steps.version.outputs.XUANJI_VERSION }}"
+          mkdir -p .build/installers
+          # deb 包
+          DEB_FILE=$(find .build -name "*.deb" -type f | head -1)
+          if [ -n "$DEB_FILE" ]; then
+            cp "$DEB_FILE" ".build/installers/xuanji_${VERSION}_amd64.deb"
+          fi
+          # AppImage
+          APPIMAGE_FILE=$(find .build -name "*.AppImage" -type f | head -1)
+          if [ -n "$APPIMAGE_FILE" ]; then
+            cp "$APPIMAGE_FILE" ".build/installers/XuanJi-${VERSION}.AppImage"
+          fi
+
+      # --- 上传裸包产物 ---
+      - name: Upload raw build artifact
         uses: actions/upload-artifact@v4
         with:
           name: xuanji-ide-${{ matrix.platform }}-${{ matrix.arch }}
           path: ../VSCode-${{ matrix.platform }}-${{ matrix.arch }}
           retention-days: 7
+
+      # --- 上传安装器产物 ---
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: xuanji-installer-${{ matrix.platform }}-${{ matrix.arch }}
+          path: .build/installers/
+          retention-days: 30
+          if-no-files-found: ignore
