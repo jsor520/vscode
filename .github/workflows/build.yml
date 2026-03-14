@@ -67,6 +67,7 @@ jobs:
           command: npm ci
         env:
           PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
+          GITHUB_TOKEN: ${{ github.token }}
 
       - name: Compile
         run: npm run compile
