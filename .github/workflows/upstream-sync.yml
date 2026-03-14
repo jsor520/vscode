@@ -1,0 +1,73 @@
+name: Upstream Sync
+
+on:
+  schedule:
+    - cron: '0 6 * * *'  # 每天 UTC 06:00
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    name: Sync with upstream VS Code
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: staging
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Add upstream remote
+        run: git remote add upstream https://github.com/microsoft/vscode.git
+
+      - name: Fetch upstream
+        run: git fetch upstream main
+
+      - name: Rebase staging onto upstream/main
+        id: rebase
+        run: |
+          git rebase upstream/main
+        continue-on-error: true
+
+      - name: Push updated staging
+        if: steps.rebase.outcome == 'success'
+        run: git push origin staging --force-with-lease
+
+      - name: Abort rebase and create issue on conflict
+        if: steps.rebase.outcome == 'failure'
+        run: git rebase --abort
+
+      - name: Create conflict issue
+        if: steps.rebase.outcome == 'failure'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = `[Upstream Sync] Rebase conflict - ${new Date().toISOString().split('T')[0]}`;
+            const body = [
+              '## Upstream Sync Conflict',
+              '',
+              'Auto-rebase of `staging` onto `upstream/main` failed due to merge conflicts.',
+              '',
+              '### Resolution Steps',
+              '1. `git fetch upstream main`',
+              '2. `git checkout staging`',
+              '3. `git rebase upstream/main`',
+              '4. Resolve conflicts manually',
+              '5. `git push origin staging --force-with-lease`',
+              '',
+              `**Workflow run**: ${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`,
+            ].join('\n');
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title,
+              body,
+              labels: ['upstream-sync', 'conflict'],
+            });

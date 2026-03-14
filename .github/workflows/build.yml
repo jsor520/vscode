@@ -1,0 +1,79 @@
+name: XuanJi IDE Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: win32
+            arch: x64
+            gulp_target: vscode-win32-x64-min
+          - os: macos-latest
+            platform: darwin
+            arch: arm64
+            gulp_target: vscode-darwin-arm64-min
+          - os: ubuntu-latest
+            platform: linux
+            arch: x64
+            gulp_target: vscode-linux-x64-min
+
+    runs-on: ${{ matrix.os }}
+    name: Build (${{ matrix.platform }}-${{ matrix.arch }})
+
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: 1
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: Install Linux dependencies
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            pkg-config \
+            libx11-dev \
+            libx11-xcb-dev \
+            libxkbfile-dev \
+            libnotify-bin \
+            libkrb5-dev
+
+      - name: Install dependencies (with retry)
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 20
+          max_attempts: 3
+          command: npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: 1
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
+
+      - name: Compile
+        run: npm run compile
+
+      - name: Package (${{ matrix.gulp_target }})
+        run: npx gulp ${{ matrix.gulp_target }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: xuanji-ide-${{ matrix.platform }}-${{ matrix.arch }}
+          path: ../VSCode-${{ matrix.platform }}-${{ matrix.arch }}
+          retention-days: 7
