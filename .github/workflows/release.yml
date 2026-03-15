@@ -42,26 +42,6 @@ jobs:
           echo "=== 发布文件 ==="
           ls -lh release-files/
 
-      - name: Read release notes
-        id: notes
-        shell: bash
-        run: |
-          VERSION="${{ github.event.inputs.version }}"
-          NOTES_FILE="docs/release-notes/v${VERSION}.md"
-          if [ -f "$NOTES_FILE" ]; then
-            echo "found=true" >> "$GITHUB_OUTPUT"
-            # 使用 delimiter 处理多行内容
-            {
-              echo "body<<RELEASE_NOTES_EOF"
-              cat "$NOTES_FILE"
-              echo ""
-              echo "RELEASE_NOTES_EOF"
-            } >> "$GITHUB_OUTPUT"
-          else
-            echo "found=false" >> "$GITHUB_OUTPUT"
-            echo "body=XuanJi IDE v${VERSION}" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -70,17 +50,23 @@ jobs:
           VERSION="${{ github.event.inputs.version }}"
           TAG="v${VERSION}"
           PRERELEASE="${{ github.event.inputs.prerelease }}"
+          NOTES_FILE="docs/release-notes/v${VERSION}.md"
 
           # 创建 tag
           git tag "$TAG" || true
           git push origin "$TAG" || true
 
-          # 构建 gh release 命令
+          # 构建 gh release 命令（使用 --notes-file 避免 shell 转义问题）
           ARGS=(
             release create "$TAG"
             --title "XuanJi IDE v${VERSION}"
-            --notes "${{ steps.notes.outputs.body }}"
           )
+
+          if [ -f "$NOTES_FILE" ]; then
+            ARGS+=(--notes-file "$NOTES_FILE")
+          else
+            ARGS+=(--notes "XuanJi IDE v${VERSION}")
+          fi
 
           if [ "$PRERELEASE" = "true" ]; then
             ARGS+=(--prerelease)
