@@ -87,7 +87,7 @@ jobs:
       # --- macOS DMG ---
       - name: Build macOS DMG
         if: matrix.platform == 'darwin'
-        run: npx ts-node build/darwin/create-dmg.ts ../VSCode-darwin-${{ matrix.arch }} .build
+        run: npx ts-node build/darwin/create-dmg.ts .. .build
         env:
           VSCODE_ARCH: ${{ matrix.arch }}
 
@@ -156,12 +156,20 @@ jobs:
           fi
 
       # --- 上传裸包产物 ---
+      - name: Move raw build to workspace
+        shell: bash
+        run: |
+          mkdir -p .build/raw
+          cp -r ../VSCode-${{ matrix.platform }}-${{ matrix.arch }} .build/raw/ || true
+
       - name: Upload raw build artifact
         uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: xuanji-ide-${{ matrix.platform }}-${{ matrix.arch }}
-          path: ../VSCode-${{ matrix.platform }}-${{ matrix.arch }}
+          path: .build/raw/
           retention-days: 7
+          if-no-files-found: ignore
 
       # --- 上传安装器产物 ---
       - name: Upload installer artifact
