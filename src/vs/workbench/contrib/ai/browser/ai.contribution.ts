@@ -8,6 +8,7 @@ import './settings/media/xuanjiSettings.css';
 import './settings/xuanjiSettingsActions.js';
 import '../../../../editor/contrib/aiCompletions/browser/aiCompletions.contribution.js';
 import './chat/xuanjiChatActions.js';
+import './inlineEdit/xuanjiInlineEditActions.js';
 
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { IAIService } from '../../../../platform/ai/common/aiService.js';

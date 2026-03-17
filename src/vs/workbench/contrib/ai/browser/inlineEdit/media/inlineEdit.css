@@ -1,0 +1,131 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+.xuanji-inline-edit-widget {
+	padding: 8px 12px;
+	font-size: 13px;
+}
+
+.xuanji-inline-edit-header {
+	font-weight: 600;
+	margin-bottom: 6px;
+	color: var(--vscode-foreground);
+}
+
+.xuanji-inline-edit-input-row {
+	margin-bottom: 6px;
+}
+
+.xuanji-inline-edit-input {
+	width: 100%;
+	resize: none;
+	padding: 6px 10px;
+	border: 1px solid var(--vscode-input-border);
+	background: var(--vscode-input-background);
+	color: var(--vscode-input-foreground);
+	border-radius: 4px;
+	font-family: inherit;
+	font-size: 13px;
+	outline: none;
+	box-sizing: border-box;
+}
+
+.xuanji-inline-edit-input:focus {
+	border-color: var(--vscode-focusBorder);
+}
+
+.xuanji-inline-edit-buttons {
+	display: flex;
+	gap: 6px;
+	margin-bottom: 4px;
+}
+
+.xuanji-inline-edit-send {
+	padding: 4px 12px;
+	background: var(--vscode-button-background);
+	color: var(--vscode-button-foreground);
+	border: none;
+	border-radius: 4px;
+	cursor: pointer;
+	font-size: 12px;
+}
+
+.xuanji-inline-edit-send:hover {
+	background: var(--vscode-button-hoverBackground);
+}
+
+.xuanji-inline-edit-cancel {
+	padding: 4px 12px;
+	background: var(--vscode-button-secondaryBackground);
+	color: var(--vscode-button-secondaryForeground);
+	border: none;
+	border-radius: 4px;
+	cursor: pointer;
+	font-size: 12px;
+}
+
+.xuanji-inline-edit-cancel:hover {
+	background: var(--vscode-button-secondaryHoverBackground);
+}
+
+.xuanji-inline-edit-status {
+	font-size: 11px;
+	color: var(--vscode-descriptionForeground);
+}
+
+.xuanji-diff-added-line {
+	background-color: rgba(40, 167, 69, 0.15) !important;
+	border-left: 3px solid #28a745;
+}
+
+.xuanji-diff-deleted-zone {
+	background-color: rgba(220, 53, 69, 0.1);
+	border-left: 3px solid #dc3545;
+	padding: 0 12px;
+	font-family: inherit;
+	font-size: 13px;
+}
+
+.xuanji-diff-deleted-line {
+	text-decoration: line-through;
+	opacity: 0.6;
+	color: var(--vscode-editorGutter-deletedBackground, #dc3545);
+}
+
+.xuanji-diff-actions {
+	display: flex;
+	gap: 8px;
+	padding: 4px 12px;
+	background: var(--vscode-editor-background);
+	border-top: 1px solid var(--vscode-widget-border);
+}
+
+.xuanji-diff-accept-btn {
+	padding: 3px 10px;
+	background: #28a745;
+	color: white;
+	border: none;
+	border-radius: 3px;
+	cursor: pointer;
+	font-size: 12px;
+}
+
+.xuanji-diff-accept-btn:hover {
+	background: #218838;
+}
+
+.xuanji-diff-reject-btn {
+	padding: 3px 10px;
+	background: #dc3545;
+	color: white;
+	border: none;
+	border-radius: 3px;
+	cursor: pointer;
+	font-size: 12px;
+}
+
+.xuanji-diff-reject-btn:hover {
+	background: #c82333;
+}
