@@ -37,6 +37,13 @@
 	border-radius: 6px;
 }
 
+.xuanji-chat-message-header {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin-bottom: 4px;
+}
+
 .xuanji-chat-message-user {
 	background: var(--vscode-input-background);
 	margin-left: 24px;
@@ -52,7 +59,64 @@
 	font-weight: 600;
 	text-transform: uppercase;
 	color: var(--vscode-descriptionForeground);
-	margin-bottom: 4px;
+}
+
+.xuanji-chat-message-kind-label {
+	font-size: 11px;
+	line-height: 1.4;
+	padding: 1px 8px;
+	border-radius: 999px;
+	background: var(--vscode-badge-background);
+	color: var(--vscode-badge-foreground);
+}
+
+.xuanji-chat-message-kind-thinking {
+	border-left: 3px solid var(--vscode-charts-blue, #3794ff);
+	background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+}
+
+.xuanji-chat-message-kind-thinking .xuanji-chat-message-content {
+	color: var(--vscode-descriptionForeground);
+	font-style: italic;
+}
+
+.xuanji-chat-message-kind-thinking .xuanji-chat-message-kind-label {
+	background: var(--vscode-textLink-foreground);
+	color: var(--vscode-editor-background);
+}
+
+.xuanji-chat-message-kind-tool-use {
+	border-left: 3px solid var(--vscode-charts-yellow, #cca700);
+	background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+}
+
+.xuanji-chat-message-kind-tool-use .xuanji-chat-message-kind-label {
+	background: var(--vscode-charts-yellow, #cca700);
+	color: var(--vscode-editor-background);
+}
+
+.xuanji-chat-message-kind-tool-result {
+	border-left: 3px solid var(--vscode-charts-green, #2aa198);
+	background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+}
+
+.xuanji-chat-message-kind-tool-result .xuanji-chat-message-kind-label {
+	background: var(--vscode-charts-green, #2aa198);
+	color: var(--vscode-editor-background);
+}
+
+.xuanji-chat-message-kind-error {
+	border-left: 3px solid var(--vscode-errorForeground);
+	background: var(--vscode-inputValidation-errorBackground, var(--vscode-editor-background));
+}
+
+.xuanji-chat-message-kind-error .xuanji-chat-message-content {
+	color: var(--vscode-errorForeground);
+}
+
+.xuanji-chat-message-kind-error .xuanji-chat-message-kind-label {
+	background: var(--vscode-errorForeground);
+	color: var(--vscode-editor-background);
 }
 
 .xuanji-chat-message-content {

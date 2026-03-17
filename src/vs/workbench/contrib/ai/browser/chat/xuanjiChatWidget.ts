@@ -71,9 +71,7 @@ export class XuanjiChatWidget extends Disposable {
 
 		this._register(this._chatService.model.onDidChange(() => {
 			for (const message of this._chatService.model.messages) {
-				if (message.isStreaming) {
-					this._messageRenderers.get(message.id)?.update();
-				}
+				this._messageRenderers.get(message.id)?.update();
 			}
 
 			stopButton.style.display = this._chatService.model.isGenerating ? '' : 'none';

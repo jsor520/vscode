@@ -14,6 +14,7 @@ export class XuanjiChatMessageRenderer extends Disposable {
 
 	private _pendingUpdate = false;
 	private _lastRenderedContent = '';
+	private _lastRenderedIsStreaming = false;
 	private readonly _renderedMarkdown = this._register(new MutableDisposable<IDisposable>());
 
 	constructor(
@@ -26,7 +27,7 @@ export class XuanjiChatMessageRenderer extends Disposable {
 	}
 
 	update(): void {
-		if (this._message.content === this._lastRenderedContent) {
+		if (this._message.content === this._lastRenderedContent && this._message.isStreaming === this._lastRenderedIsStreaming) {
 			return;
 		}
 
@@ -41,15 +42,31 @@ export class XuanjiChatMessageRenderer extends Disposable {
 
 	private _render(): void {
 		this._lastRenderedContent = this._message.content;
-		const isUser = this._message.role === 'user';
+		this._lastRenderedIsStreaming = this._message.isStreaming;
 
-		this._container.className = `xuanji-chat-message ${isUser ? 'xuanji-chat-message-user' : 'xuanji-chat-message-assistant'}`;
+		const isUser = this._message.role === 'user';
+		const kindClassName = this._message.kind.replace(/_/g, '-');
+
+		this._container.className = `xuanji-chat-message ${isUser ? 'xuanji-chat-message-user' : 'xuanji-chat-message-assistant'} xuanji-chat-message-kind-${kindClassName}`;
 		this._container.textContent = '';
+
+		const header = document.createElement('div');
+		header.className = 'xuanji-chat-message-header';
 
 		const roleLabel = document.createElement('div');
 		roleLabel.className = 'xuanji-chat-message-role';
 		roleLabel.textContent = isUser ? 'User' : 'XuanJi AI';
-		this._container.appendChild(roleLabel);
+		header.appendChild(roleLabel);
+
+		const kindLabel = this._getKindLabel();
+		if (kindLabel) {
+			const kindLabelElement = document.createElement('div');
+			kindLabelElement.className = 'xuanji-chat-message-kind-label';
+			kindLabelElement.textContent = kindLabel;
+			header.appendChild(kindLabelElement);
+		}
+
+		this._container.appendChild(header);
 
 		const contentElement = document.createElement('div');
 		contentElement.className = 'xuanji-chat-message-content';
@@ -75,5 +92,20 @@ export class XuanjiChatMessageRenderer extends Disposable {
 		}
 
 		this._container.appendChild(contentElement);
+	}
+
+	private _getKindLabel(): string | undefined {
+		switch (this._message.kind) {
+			case 'thinking':
+				return this._message.label || 'Reasoning';
+			case 'tool_use':
+				return this._message.label ? `Tool: ${this._message.label}` : 'Tool Call';
+			case 'tool_result':
+				return this._message.label ? `Result: ${this._message.label}` : 'Tool Result';
+			case 'error':
+				return this._message.label || 'Error';
+			default:
+				return undefined;
+		}
 	}
 }

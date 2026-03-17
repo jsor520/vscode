@@ -14,6 +14,24 @@ function getErrorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
 }
 
+function formatToolLabel(toolName?: string): string {
+	return toolName || 'Tool';
+}
+
+function formatToolPayload(input: unknown): string {
+	if (typeof input === 'string') {
+		return input;
+	}
+	if (input === undefined) {
+		return '';
+	}
+	try {
+		return `\`\`\`json\n${JSON.stringify(input, null, 2)}\n\`\`\``;
+	} catch {
+		return String(input);
+	}
+}
+
 export class XuanjiChatService extends Disposable {
 
 	private readonly _model = this._register(new XuanjiChatModel());
@@ -40,7 +58,7 @@ export class XuanjiChatService extends Disposable {
 
 		try {
 			const messages = this._model.toChatMessages();
-			this._model.addAssistantMessage();
+			this._model.startGeneration();
 
 			if (this._rulesProvider) {
 				try {
@@ -65,12 +83,18 @@ export class XuanjiChatService extends Disposable {
 
 				if (chunk.type === 'text') {
 					this._model.appendToLastAssistant(chunk.content);
+				} else if (chunk.type === 'thinking') {
+					this._model.appendThinking(chunk.content);
+				} else if (chunk.type === 'tool_use') {
+					this._model.addToolUse(formatToolLabel(chunk.toolName), formatToolPayload(chunk.toolInput) || chunk.content);
+				} else if (chunk.type === 'tool_result') {
+					this._model.addToolResult(formatToolLabel(chunk.toolName), chunk.content);
 				} else if (chunk.type === 'error') {
-					this._model.appendToLastAssistant(`\n\n**Error**: ${chunk.content}`);
+					this._model.addError(chunk.content);
 				}
 			}
 		} catch (error) {
-			this._model.appendToLastAssistant(`\n\n**Error**: ${getErrorMessage(error)}`);
+			this._model.addError(getErrorMessage(error));
 		} finally {
 			this._model.finishGeneration();
 			if (this._currentCancellationTokenSource === cancellationTokenSource) {
