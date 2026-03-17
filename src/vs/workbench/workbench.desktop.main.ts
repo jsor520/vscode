@@ -191,6 +191,9 @@ import './contrib/mcp/electron-browser/mcp.contribution.js';
 // Policy Export
 import './contrib/policyExport/electron-browser/policyExport.contribution.js';
 
+// XuanJi AI
+import './contrib/ai/electron-browser/ai.contribution.js';
+
 //#endregion
 
 
