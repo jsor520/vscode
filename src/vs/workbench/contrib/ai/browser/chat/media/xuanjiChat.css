@@ -1,0 +1,388 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+/* Widget layout */
+
+.xuanji-chat-widget {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+	overflow: hidden;
+}
+
+.xuanji-chat-messages {
+	flex: 1;
+	overflow-y: auto;
+	padding: 12px;
+}
+
+.xuanji-chat-welcome {
+	text-align: center;
+	padding: 40px 20px;
+	color: var(--vscode-descriptionForeground);
+}
+
+.xuanji-chat-welcome h3 {
+	margin-bottom: 8px;
+	color: var(--vscode-foreground);
+}
+
+/* Messages */
+
+.xuanji-chat-message {
+	margin-bottom: 16px;
+	padding: 8px 12px;
+	border-radius: 6px;
+}
+
+.xuanji-chat-message-user {
+	background: var(--vscode-input-background);
+	margin-left: 24px;
+}
+
+.xuanji-chat-message-assistant {
+	background: var(--vscode-editor-background);
+	border: 1px solid var(--vscode-widget-border);
+}
+
+.xuanji-chat-message-role {
+	font-size: 11px;
+	font-weight: 600;
+	text-transform: uppercase;
+	color: var(--vscode-descriptionForeground);
+	margin-bottom: 4px;
+}
+
+.xuanji-chat-message-content {
+	line-height: 1.5;
+	word-wrap: break-word;
+}
+
+.xuanji-chat-message-content code {
+	background: var(--vscode-textCodeBlock-background);
+	padding: 1px 4px;
+	border-radius: 3px;
+	font-size: 0.9em;
+}
+
+.xuanji-chat-message-content pre {
+	background: var(--vscode-textCodeBlock-background);
+	padding: 8px 12px;
+	border-radius: 4px;
+	overflow-x: auto;
+	margin: 8px 0;
+}
+
+.xuanji-chat-streaming-cursor {
+	display: inline-block;
+	animation: xuanji-blink 1s step-end infinite;
+	color: var(--vscode-editorCursor-foreground);
+}
+
+@keyframes xuanji-blink {
+	50% { opacity: 0; }
+}
+
+/* Stop button */
+
+.xuanji-chat-stop-container {
+	text-align: center;
+	padding: 4px;
+}
+
+.xuanji-chat-stop-btn {
+	padding: 4px 12px;
+	border: 1px solid var(--vscode-button-secondaryBorder, var(--vscode-widget-border));
+	background: var(--vscode-button-secondaryBackground);
+	color: var(--vscode-button-secondaryForeground);
+	border-radius: 4px;
+	cursor: pointer;
+	font-size: 12px;
+}
+
+.xuanji-chat-stop-btn:hover {
+	background: var(--vscode-button-secondaryHoverBackground);
+}
+
+/* Input area */
+
+.xj-input-container {
+	padding: 0 10px 12px;
+}
+
+.xj-input-card {
+	position: relative;
+	border: 1px solid rgba(255, 255, 255, 0.08) !important;
+	border-radius: 14px;
+	background: var(--vscode-input-background);
+	display: flex;
+	flex-direction: column;
+	outline: none !important;
+}
+
+.xj-input-card:focus-within {
+	border-color: rgba(255, 255, 255, 0.08) !important;
+	outline: none !important;
+	box-shadow: none !important;
+}
+
+.xj-attachment-bar {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px;
+	padding: 8px 12px 0;
+}
+
+.xj-attachment-bar:empty {
+	display: none;
+}
+
+.xj-attachment-tag {
+	display: inline-flex;
+	align-items: center;
+	padding: 3px 8px;
+	background: rgba(255, 255, 255, 0.06);
+	border-radius: 6px;
+	font-size: 11px;
+	color: var(--vscode-foreground);
+	max-width: 220px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	gap: 4px;
+}
+
+.xj-attachment-remove {
+	cursor: pointer;
+	opacity: 0.65;
+	font-size: 11px;
+}
+
+.xj-attachment-remove:hover {
+	opacity: 1;
+}
+
+.xj-input-textarea {
+	border: none !important;
+	outline: none !important;
+	box-shadow: none !important;
+	-webkit-appearance: none;
+	background: transparent;
+	color: var(--vscode-input-foreground);
+	font-size: 14px;
+	line-height: 1.55;
+	padding: 14px 14px 4px;
+	resize: none;
+	min-height: 24px;
+	max-height: 200px;
+	width: 100%;
+	box-sizing: border-box;
+	overflow-y: auto;
+}
+
+.xj-input-textarea:focus,
+.xj-input-textarea:focus-visible,
+.xj-input-textarea:focus-within {
+	border: none !important;
+	outline: none !important;
+	box-shadow: none !important;
+}
+
+.xj-input-textarea::placeholder {
+	color: var(--vscode-input-placeholderForeground);
+}
+
+.xj-input-toolbar {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	padding: 6px 10px 10px;
+}
+
+.xj-toolbar-left,
+.xj-toolbar-right {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.xj-pill {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	padding: 4px 10px;
+	border-radius: 8px;
+	cursor: pointer;
+	font-size: 12px;
+	font-weight: 500;
+	color: rgba(255, 255, 255, 0.65);
+	background: rgba(255, 255, 255, 0.05);
+	user-select: none;
+	transition: background 0.15s, color 0.15s;
+	white-space: nowrap;
+}
+
+.xj-pill:hover {
+	background: rgba(255, 255, 255, 0.10);
+	color: rgba(255, 255, 255, 0.85);
+}
+
+.xj-chevron {
+	font-size: 10px;
+	opacity: 0.5;
+}
+
+.xj-icon-btn {
+	width: 28px;
+	height: 28px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	border-radius: 6px;
+	cursor: pointer;
+	color: rgba(255, 255, 255, 0.4);
+	transition: background 0.15s, color 0.15s;
+}
+
+.xj-icon-btn:hover {
+	background: rgba(255, 255, 255, 0.08);
+	color: rgba(255, 255, 255, 0.7);
+}
+
+.xj-send-btn {
+	width: 28px;
+	height: 28px;
+	border-radius: 50%;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	cursor: pointer;
+	background: var(--vscode-button-background);
+	color: var(--vscode-button-foreground);
+	transition: opacity 0.15s, transform 0.1s;
+	flex-shrink: 0;
+	font-size: 14px;
+}
+
+.xj-send-btn:hover {
+	opacity: 0.85;
+	transform: scale(1.05);
+}
+
+.xj-send-btn:active {
+	transform: scale(0.95);
+}
+
+.xj-send-btn.disabled {
+	opacity: 0.3;
+	cursor: default;
+	pointer-events: none;
+}
+
+/* Model dropdown */
+
+.xj-model-dropdown {
+	position: absolute;
+	bottom: 100%;
+	left: 10px;
+	margin-bottom: 6px;
+	width: 280px;
+	max-height: 400px;
+	background: var(--vscode-editorWidget-background, #1e1e1e);
+	border: 1px solid rgba(255, 255, 255, 0.10);
+	border-radius: 12px;
+	box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+	display: flex;
+	flex-direction: column;
+	overflow: hidden;
+	z-index: 1000;
+}
+
+.xj-dropdown-search {
+	border: none;
+	outline: none;
+	background: transparent;
+	color: var(--vscode-input-foreground);
+	font-size: 13px;
+	padding: 10px 14px;
+	border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+	width: 100%;
+	box-sizing: border-box;
+}
+
+.xj-dropdown-search::placeholder {
+	color: rgba(255, 255, 255, 0.3);
+}
+
+.xj-dropdown-list {
+	overflow-y: auto;
+	max-height: 300px;
+	padding: 4px 0;
+}
+
+.xj-dropdown-empty {
+	padding: 16px;
+	text-align: center;
+	color: rgba(255, 255, 255, 0.5);
+	font-size: 13px;
+}
+
+.xj-dropdown-item {
+	display: flex;
+	align-items: center;
+	padding: 7px 14px;
+	cursor: pointer;
+	font-size: 13px;
+	color: rgba(255, 255, 255, 0.75);
+	transition: background 0.1s;
+}
+
+.xj-dropdown-item:hover {
+	background: rgba(255, 255, 255, 0.06);
+}
+
+.xj-dropdown-item.selected {
+	color: var(--vscode-foreground);
+}
+
+.xj-dropdown-provider-icon {
+	width: 20px;
+	font-size: 11px;
+	flex-shrink: 0;
+	text-transform: uppercase;
+	opacity: 0.75;
+}
+
+.xj-dropdown-item-name {
+	flex: 1;
+}
+
+.xj-dropdown-check {
+	color: var(--vscode-foreground);
+	font-size: 14px;
+	margin-left: auto;
+}
+
+.xj-dropdown-divider {
+	height: 1px;
+	background: rgba(255, 255, 255, 0.06);
+	margin: 2px 0;
+}
+
+.xj-dropdown-add {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: 8px 14px;
+	cursor: pointer;
+	font-size: 13px;
+	color: rgba(255, 255, 255, 0.5);
+	transition: background 0.1s, color 0.1s;
+}
+
+.xj-dropdown-add:hover {
+	background: rgba(255, 255, 255, 0.06);
+	color: rgba(255, 255, 255, 0.8);
+}
