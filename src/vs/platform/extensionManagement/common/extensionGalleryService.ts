@@ -1428,7 +1428,6 @@ export abstract class AbstractExtensionGalleryService implements IExtensionGalle
 			'Content-Type': 'application/json',
 			'Accept': 'application/json;api-version=3.0-preview.1',
 			'Accept-Encoding': 'gzip',
-			'Content-Length': String(data.length),
 		};
 
 		const stopWatch = new StopWatch();

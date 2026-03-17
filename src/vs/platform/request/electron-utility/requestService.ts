@@ -26,7 +26,7 @@ export class RequestService extends NodeRequestService {
 		super('local', configurationService, environmentService, logService);
 	}
 
-	override request(options: IRequestOptions, token: CancellationToken): Promise<IRequestContext> {
+	override async request(options: IRequestOptions, token: CancellationToken): Promise<IRequestContext> {
 		return super.request({ ...(options || {}), getRawRequest, isChromiumNetwork: true }, token);
 	}
 }

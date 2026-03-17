@@ -339,7 +339,10 @@ export class CodeApplication extends Disposable {
 
 		//#endregion
 
-		//#region Allow CORS for the PRSS CDN
+		//#region Allow CORS for the PRSS CDN and AI API
+
+		// NOTE: AI API header stripping (User-Agent, Origin, Sec-Fetch-*) is handled in
+		// windowImpl.ts onBeforeSendHeaders to avoid being overridden by the marketplace handler.
 
 		// https://github.com/microsoft/vscode-remote-release/issues/9246
 		session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
@@ -350,6 +353,28 @@ export class CodeApplication extends Disposable {
 					responseHeaders['Access-Control-Allow-Origin'] = ['*'];
 					return callback({ cancel: false, responseHeaders });
 				}
+			}
+
+			// Allow CORS for AI API requests (Anthropic + OpenAI compatible)
+			// The base URL is user-configurable, so match on the API path pattern.
+			// For OPTIONS preflight: the server may not handle OPTIONS (returns 4xx/5xx),
+			// so we force the status to 200 and inject all required CORS headers.
+			if (details.url.includes('/v1/messages') || details.url.includes('/v1/chat/completions')) {
+				const responseHeaders = details.responseHeaders ?? Object.create(null);
+				// Replace (not append) to avoid duplicate header values
+				responseHeaders['Access-Control-Allow-Origin'] = ['*'];
+				delete responseHeaders['access-control-allow-origin'];
+				responseHeaders['Access-Control-Allow-Methods'] = ['GET, POST, OPTIONS'];
+				delete responseHeaders['access-control-allow-methods'];
+				responseHeaders['Access-Control-Allow-Headers'] = ['Content-Type, Authorization, x-api-key, anthropic-version'];
+				delete responseHeaders['access-control-allow-headers'];
+
+				if (details.method === 'OPTIONS') {
+					responseHeaders['Access-Control-Max-Age'] = ['86400'];
+					return callback({ cancel: false, responseHeaders, statusLine: 'HTTP/1.1 200 OK' });
+				}
+
+				return callback({ cancel: false, responseHeaders });
 			}
 
 			return callback({ cancel: false });

@@ -858,15 +858,47 @@ export class CodeWindow extends BaseWindow implements ICodeWindow {
 		this._register(this.workspacesManagementMainService.onDidDeleteUntitledWorkspace(e => this.onDidDeleteUntitledWorkspace(e)));
 
 		// Inject headers when requests are incoming
-		const urls = ['https://*.vsassets.io/*'];
+		const marketplaceUrls = new Set<string>(['https://*.vsassets.io/*']);
 		if (this.productService.extensionsGallery?.serviceUrl) {
 			const serviceUrl = URI.parse(this.productService.extensionsGallery.serviceUrl);
-			urls.push(`${serviceUrl.scheme}://${serviceUrl.authority}/*`);
+			marketplaceUrls.add(`${serviceUrl.scheme}://${serviceUrl.authority}/*`);
 		}
-		this._win.webContents.session.webRequest.onBeforeSendHeaders({ urls }, async (details, cb) => {
-			const headers = await this.getMarketplaceHeaders();
+		// Pre-resolve marketplace headers to avoid async delay in onBeforeSendHeaders,
+		// which can cause Electron POST bodies to be dropped.
+		const marketplaceHeadersPromise = this.getMarketplaceHeaders();
+		this._win.webContents.session.webRequest.onBeforeSendHeaders((details, cb) => {
+			const url = details.url;
 
-			cb({ cancel: false, requestHeaders: Object.assign(details.requestHeaders, headers) });
+			// AI API requests strip browser-only headers and use a CLI-like user agent.
+			if (url.includes('/v1/messages') || url.includes('/v1/chat/completions')) {
+				const strip = this.configurationService.getValue<boolean>('xuanji.ai.stripBrowserHeaders');
+				if (strip !== false) {
+					const headers = details.requestHeaders;
+					delete headers['Origin'];
+					delete headers['Referer'];
+					delete headers['Sec-Fetch-Mode'];
+					delete headers['Sec-Fetch-Site'];
+					delete headers['Sec-Fetch-Dest'];
+					headers['User-Agent'] = 'claude-cli/2.1.63 (external, sdk-cli)';
+					return cb({ cancel: false, requestHeaders: headers });
+				}
+			}
+
+			// Marketplace requests inject the resolved gallery headers.
+			const isMarketplace = [...marketplaceUrls].some(pattern => {
+				const regex = new RegExp('^' + pattern.replace(/\*/g, '.*') + '$');
+				return regex.test(url);
+			});
+			if (isMarketplace) {
+				marketplaceHeadersPromise.then(headers => {
+					cb({ cancel: false, requestHeaders: Object.assign(details.requestHeaders, headers) });
+				}, () => {
+					cb({ cancel: false, requestHeaders: details.requestHeaders });
+				});
+				return;
+			}
+
+			cb({ cancel: false, requestHeaders: details.requestHeaders });
 		});
 	}
 
