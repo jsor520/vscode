@@ -14,11 +14,14 @@ import { InstantiationType, registerSingleton } from '../../../../platform/insta
 import { IAIService } from '../../../../platform/ai/common/aiService.js';
 import { AICredentialsService, IAICredentialsService } from '../../../../platform/ai/common/aiCredentialsService.js';
 import { BrowserAIServiceImpl } from '../../../../platform/ai/common/aiServiceImpl.js';
+import { IToolRegistry, ToolRegistry } from '../common/toolRegistry.js';
 import { IWorkbenchContribution, WorkbenchPhase, registerWorkbenchContribution2 } from '../../../common/contributions.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
+import { XuanjiToolRegistryContribution } from './tools/xuanjiToolRegistryContribution.js';
 
 registerSingleton(IAICredentialsService, AICredentialsService, InstantiationType.Delayed);
 registerSingleton(IAIService, BrowserAIServiceImpl, InstantiationType.Delayed);
+registerSingleton(IToolRegistry, ToolRegistry, InstantiationType.Delayed);
 
 class XuanjiAICredentialsMigrationContribution implements IWorkbenchContribution {
 	static readonly ID = 'workbench.contrib.xuanjiAiCredentialsMigration';
@@ -36,5 +39,11 @@ class XuanjiAICredentialsMigrationContribution implements IWorkbenchContribution
 registerWorkbenchContribution2(
 	XuanjiAICredentialsMigrationContribution.ID,
 	XuanjiAICredentialsMigrationContribution,
+	WorkbenchPhase.AfterRestored,
+);
+
+registerWorkbenchContribution2(
+	XuanjiToolRegistryContribution.ID,
+	XuanjiToolRegistryContribution,
 	WorkbenchPhase.AfterRestored,
 );
