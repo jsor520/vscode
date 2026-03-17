@@ -68,14 +68,8 @@ const chatViewDescriptor: IViewDescriptor = {
 		order: 1
 	},
 	ctorDescriptor: new SyncDescriptor(ChatViewPane),
-	when: ContextKeyExpr.or(
-		ContextKeyExpr.or(
-			ChatContextKeys.Setup.hidden,
-			ChatContextKeys.Setup.disabled
-		)?.negate(),
-		ChatContextKeys.panelParticipantRegistered,
-		ChatContextKeys.extensionInvalid
-	)
+	// Keep the built-in chat services available while hiding the default Chat panel UI.
+	when: ContextKeyExpr.false()
 };
 Registry.as<IViewsRegistry>(ViewExtensions.ViewsRegistry).registerViews([chatViewDescriptor], chatViewContainer);
 
