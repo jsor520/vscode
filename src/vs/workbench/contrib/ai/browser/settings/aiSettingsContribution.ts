@@ -27,6 +27,20 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 			description: localize('xuanjiAi.maxTokens', "Maximum token count for AI responses"),
 			scope: ConfigurationScope.APPLICATION,
 		},
+		[XuanjiAiSettings.ToolMaxCalls]: {
+			type: 'number',
+			default: 25,
+			minimum: 1,
+			maximum: 100,
+			description: localize('xuanjiAi.tools.maxCalls', "Maximum number of AI tool calls allowed in a single chat task"),
+			scope: ConfigurationScope.APPLICATION,
+		},
+		[XuanjiAiSettings.AutoApproveFileEdits]: {
+			type: 'boolean',
+			default: false,
+			description: localize('xuanjiAi.tools.autoApproveFileEdits', "Skip confirmation dialogs for AI write_file and edit_file tools"),
+			scope: ConfigurationScope.APPLICATION,
+		},
 		[XuanjiAiSettings.CompletionEnabled]: {
 			type: 'boolean',
 			default: true,

@@ -11,6 +11,8 @@ export const enum XuanjiAiSettings {
 	StripBrowserHeaders = 'xuanji.ai.stripBrowserHeaders',
 	CustomModels = 'xuanji.ai.customModels',
 	Credentials = 'xuanji.ai.credentials',
+	ToolMaxCalls = 'xuanji.ai.tools.maxCalls',
+	AutoApproveFileEdits = 'xuanji.ai.tools.autoApproveFileEdits',
 }
 
 export type ApiFormat = 'anthropic' | 'openai';

@@ -70,6 +70,8 @@ export class XuanjiChatService extends Disposable {
 				maxTokens: this._configurationService.getValue<number>(XuanjiAiSettings.MaxTokens) || undefined,
 			};
 
+			const toolCallLimit = this._configurationService.getValue<number>(XuanjiAiSettings.ToolMaxCalls) || 25;
+
 			await this._toolExecutor.executeConversation(
 				conversation,
 				options,
@@ -81,6 +83,7 @@ export class XuanjiChatService extends Disposable {
 					onError: message => this._model.addError(message),
 				},
 				cancellationTokenSource.token,
+				toolCallLimit,
 			);
 		} catch (error) {
 			this._model.addError(getErrorMessage(error));
@@ -132,4 +135,6 @@ export class XuanjiChatService extends Disposable {
 		this._model.addToolResult(result.isError ? `${label} (failed)` : label, content);
 	}
 }
+
+
 

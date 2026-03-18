@@ -3,17 +3,25 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { VSBuffer } from '../../../../../base/common/buffer.js';
 import { CancellationToken } from '../../../../../base/common/cancellation.js';
 import { CancellationError } from '../../../../../base/common/errors.js';
-import { basename, relativePath } from '../../../../../base/common/resources.js';
 import * as paths from '../../../../../base/common/path.js';
+import { basename, dirname, relativePath } from '../../../../../base/common/resources.js';
+import Severity from '../../../../../base/common/severity.js';
 import { URI } from '../../../../../base/common/uri.js';
+import { localize } from '../../../../../nls.js';
+import { IQuickInputService } from '../../../../../platform/quickinput/common/quickInput.js';
 import { IFileService, IFileStat } from '../../../../../platform/files/common/files.js';
+import { IConfigurationService } from '../../../../../platform/configuration/common/configuration.js';
 import { IInstantiationService } from '../../../../../platform/instantiation/common/instantiation.js';
 import { IWorkspaceContextService } from '../../../../../platform/workspace/common/workspace.js';
+import { IDialogService } from '../../../../../platform/dialogs/common/dialogs.js';
+import { XuanjiAiSettings } from '../../../../../platform/ai/common/aiSettings.js';
 import { IWorkbenchContribution } from '../../../../common/contributions.js';
 import { QueryBuilder } from '../../../../services/search/common/queryBuilder.js';
 import { ISearchService, resultIsMatch } from '../../../../services/search/common/search.js';
+import { applyTextEdit } from '../../common/toolTextEdit.js';
 import { IToolRegistry, IXuanjiTool } from '../../common/toolRegistry.js';
 
 interface IPathToolInput {
@@ -41,9 +49,28 @@ interface ISearchCodeInput {
 	readonly maxResults?: number;
 }
 
+interface IWriteFileInput extends IPathToolInput {
+	readonly content: string;
+	readonly overwrite?: boolean;
+}
+
+interface IEditFileInput extends IPathToolInput {
+	readonly oldText: string;
+	readonly newText: string;
+	readonly replaceAll?: boolean;
+}
+
+interface IAskUserInput {
+	readonly question: string;
+	readonly placeHolder?: string;
+	readonly value?: string;
+	readonly password?: boolean;
+}
+
 const DEFAULT_READ_FILE_MAX_CHARS = 16_000;
 const DEFAULT_LIST_DIRECTORY_MAX_ENTRIES = 200;
 const DEFAULT_SEARCH_MAX_RESULTS = 50;
+const PREVIEW_MAX_CHARS = 600;
 
 export class XuanjiToolRegistryContribution implements IWorkbenchContribution {
 	static readonly ID = 'workbench.contrib.xuanjiToolRegistry';
@@ -55,6 +82,9 @@ export class XuanjiToolRegistryContribution implements IWorkbenchContribution {
 		@IFileService private readonly _fileService: IFileService,
 		@ISearchService private readonly _searchService: ISearchService,
 		@IWorkspaceContextService private readonly _workspaceContextService: IWorkspaceContextService,
+		@IConfigurationService private readonly _configurationService: IConfigurationService,
+		@IDialogService private readonly _dialogService: IDialogService,
+		@IQuickInputService private readonly _quickInputService: IQuickInputService,
 		@IInstantiationService instantiationService: IInstantiationService,
 	) {
 		this._queryBuilder = instantiationService.createInstance(QueryBuilder);
@@ -63,6 +93,9 @@ export class XuanjiToolRegistryContribution implements IWorkbenchContribution {
 		this._toolRegistry.registerTool(this._createListDirectoryTool());
 		this._toolRegistry.registerTool(this._createSearchFilesTool());
 		this._toolRegistry.registerTool(this._createSearchCodeTool());
+		this._toolRegistry.registerTool(this._createWriteFileTool());
+		this._toolRegistry.registerTool(this._createEditFileTool());
+		this._toolRegistry.registerTool(this._createAskUserTool());
 	}
 
 	private _createReadFileTool(): IXuanjiTool {
@@ -228,6 +261,138 @@ export class XuanjiToolRegistryContribution implements IWorkbenchContribution {
 		};
 	}
 
+	private _createWriteFileTool(): IXuanjiTool {
+		return {
+			name: 'write_file',
+			description: 'Create or overwrite a file in the current workspace after confirmation.',
+			inputSchema: {
+				type: 'object',
+				properties: {
+					path: { type: 'string', description: 'A workspace-relative path, absolute path, or file:// URI.' },
+					content: { type: 'string', description: 'New file contents.' },
+					overwrite: { type: 'boolean', description: 'Whether an existing file may be replaced.' },
+				},
+				required: ['path', 'content'],
+			},
+			execute: async (rawInput, token) => {
+				const input = rawInput as IWriteFileInput;
+				if (!input.path) {
+					throw new Error('write_file requires a path.');
+				}
+
+				const resource = this._resolvePath(input.path);
+				const exists = await this._fileService.exists(resource);
+				if (exists && !input.overwrite) {
+					throw new Error(`File "${this._formatResource(resource)}" already exists. Pass overwrite=true to replace it.`);
+				}
+
+				const confirmed = await this._confirmFileMutation(
+					localize('xuanjiTools.writeFile.title', 'Allow AI to write a file?'),
+					localize('xuanjiTools.writeFile.message', 'Write {0}?', this._formatResource(resource)),
+					`${exists ? localize('xuanjiTools.writeFile.overwrite', 'This will overwrite the existing file.') : localize('xuanjiTools.writeFile.create', 'This will create a new file if needed.')}\n\n${this._createPreview(input.content)}`,
+					localize('xuanjiTools.writeFile.primary', 'Write File'),
+				);
+				if (!confirmed) {
+					return { content: 'The user cancelled the file write request.', isError: true };
+				}
+
+				await this._ensureParentDirectory(resource);
+				if (exists) {
+					await this._fileService.writeFile(resource, VSBuffer.fromString(input.content));
+				} else {
+					await this._fileService.createFile(resource, VSBuffer.fromString(input.content), { overwrite: false });
+				}
+
+				return {
+					content: `Wrote ${input.content.length} characters to ${this._formatResource(resource)}.`,
+				};
+			},
+		};
+	}
+
+	private _createEditFileTool(): IXuanjiTool {
+		return {
+			name: 'edit_file',
+			description: 'Replace exact text in an existing file after confirmation.',
+			inputSchema: {
+				type: 'object',
+				properties: {
+					path: { type: 'string', description: 'A workspace-relative path, absolute path, or file:// URI.' },
+					oldText: { type: 'string', description: 'Exact text to replace.' },
+					newText: { type: 'string', description: 'Replacement text.' },
+					replaceAll: { type: 'boolean', description: 'Replace all occurrences instead of only the first match.' },
+				},
+				required: ['path', 'oldText', 'newText'],
+			},
+			execute: async (rawInput, token) => {
+				const input = rawInput as IEditFileInput;
+				if (!input.path) {
+					throw new Error('edit_file requires a path.');
+				}
+
+				const resource = this._resolvePath(input.path);
+				if (!await this._fileService.exists(resource)) {
+					throw new Error(`File "${this._formatResource(resource)}" does not exist.`);
+				}
+
+				const original = (await this._fileService.readFile(resource, undefined, token)).value.toString();
+				const result = applyTextEdit(original, input.oldText, input.newText, !!input.replaceAll);
+				const confirmed = await this._confirmFileMutation(
+					localize('xuanjiTools.editFile.title', 'Allow AI to edit a file?'),
+					localize('xuanjiTools.editFile.message', 'Edit {0}?', this._formatResource(resource)),
+					`${localize('xuanjiTools.editFile.detail', 'This will apply {0} replacement(s).', result.replacements)}\n\n${this._createPreview(input.oldText, localize('xuanjiTools.editFile.oldText', 'Old text'))}\n\n${this._createPreview(input.newText, localize('xuanjiTools.editFile.newText', 'New text'))}`,
+					localize('xuanjiTools.editFile.primary', 'Apply Edit'),
+				);
+				if (!confirmed) {
+					return { content: 'The user cancelled the file edit request.', isError: true };
+				}
+
+				await this._fileService.writeFile(resource, VSBuffer.fromString(result.content));
+				return {
+					content: `Updated ${this._formatResource(resource)} with ${result.replacements} replacement(s).`,
+				};
+			},
+		};
+	}
+
+	private _createAskUserTool(): IXuanjiTool {
+		return {
+			name: 'ask_user',
+			description: 'Ask the user a question when more input is required.',
+			inputSchema: {
+				type: 'object',
+				properties: {
+					question: { type: 'string', description: 'Question to ask the user.' },
+					placeHolder: { type: 'string', description: 'Optional input placeholder.' },
+					value: { type: 'string', description: 'Optional default value.' },
+					password: { type: 'boolean', description: 'Whether to mask the answer.' },
+				},
+				required: ['question'],
+			},
+			execute: async (rawInput, token) => {
+				const input = rawInput as IAskUserInput;
+				if (!input.question?.trim()) {
+					throw new Error('ask_user requires a non-empty question.');
+				}
+
+				const answer = await this._quickInputService.input({
+					title: localize('xuanjiTools.askUser.title', 'XuanJi AI needs your input'),
+					prompt: input.question,
+					placeHolder: input.placeHolder,
+					value: input.value,
+					password: !!input.password,
+					ignoreFocusLost: true,
+				}, token);
+
+				if (answer === undefined) {
+					return { content: 'The user cancelled the prompt.', isError: true };
+				}
+
+				return { content: answer };
+			},
+		};
+	}
+
 	private _getWorkspaceFolderResources(): URI[] {
 		const folders = this._workspaceContextService.getWorkspace().folders;
 		if (!folders.length) {
@@ -322,5 +487,40 @@ export class XuanjiToolRegistryContribution implements IWorkbenchContribution {
 		if (token.isCancellationRequested) {
 			throw new CancellationError();
 		}
+	}
+
+	private async _confirmFileMutation(title: string, message: string, detail: string, primaryButton: string): Promise<boolean> {
+		if (this._configurationService.getValue<boolean>(XuanjiAiSettings.AutoApproveFileEdits)) {
+			return true;
+		}
+
+		const result = await this._dialogService.confirm({
+			type: Severity.Warning,
+			title,
+			message,
+			detail,
+			primaryButton,
+			cancelButton: localize('xuanjiTools.cancel', 'Cancel'),
+		});
+		return result.confirmed;
+	}
+
+	private _createPreview(content: string, title?: string): string {
+		const normalized = content.length > PREVIEW_MAX_CHARS
+			? `${content.slice(0, PREVIEW_MAX_CHARS)}\n...[truncated]`
+			: content;
+		return title ? `${title}:\n${normalized}` : normalized;
+	}
+
+	private async _ensureParentDirectory(resource: URI): Promise<void> {
+		const parent = dirname(resource);
+		if (parent.toString() === resource.toString()) {
+			return;
+		}
+		if (await this._fileService.exists(parent)) {
+			return;
+		}
+
+		await this._fileService.createFolder(parent);
 	}
 }
