@@ -5,9 +5,11 @@
 
 import { CancellationTokenSource } from '../../../../../base/common/cancellation.js';
 import { Disposable } from '../../../../../base/common/lifecycle.js';
-import { IAIService, IChatOptions, IContextAttachment } from '../../../../../platform/ai/common/aiService.js';
+import { IAIService, IChatMessage, IChatOptions, IChatToolCall, IContextAttachment } from '../../../../../platform/ai/common/aiService.js';
 import { IConfigurationService } from '../../../../../platform/configuration/common/configuration.js';
 import { XuanjiAiSettings } from '../../../../../platform/ai/common/aiSettings.js';
+import { IToolInvocationResult, IToolRegistry } from '../../common/toolRegistry.js';
+import { XuanjiToolExecutor } from '../../common/toolExecutor.js';
 import { XuanjiChatModel } from './xuanjiChatModel.js';
 
 function getErrorMessage(error: unknown): string {
@@ -35,14 +37,17 @@ function formatToolPayload(input: unknown): string {
 export class XuanjiChatService extends Disposable {
 
 	private readonly _model = this._register(new XuanjiChatModel());
+	private readonly _toolExecutor: XuanjiToolExecutor;
 	private _currentCancellationTokenSource: CancellationTokenSource | undefined;
 
 	constructor(
-		private readonly _aiService: IAIService,
+		aiService: IAIService,
+		toolRegistry: IToolRegistry,
 		private readonly _configurationService: IConfigurationService,
 		private readonly _rulesProvider?: { collectRules(): Promise<string> },
 	) {
 		super();
+		this._toolExecutor = new XuanjiToolExecutor(aiService, toolRegistry);
 	}
 
 	get model(): XuanjiChatModel {
@@ -55,44 +60,28 @@ export class XuanjiChatService extends Disposable {
 
 		const cancellationTokenSource = new CancellationTokenSource();
 		this._currentCancellationTokenSource = cancellationTokenSource;
+		this._model.startGeneration();
 
 		try {
 			const messages = this._model.toChatMessages();
-			this._model.startGeneration();
-
-			if (this._rulesProvider) {
-				try {
-					const rules = await this._rulesProvider.collectRules();
-					if (rules) {
-						messages.unshift({ role: 'system', content: rules });
-					}
-				} catch {
-					// Ignore rules loading failures for chat requests.
-				}
-			}
-
+			const conversation = await this._buildConversation(messages);
 			const options: IChatOptions = {
 				model: this._configurationService.getValue<string>(XuanjiAiSettings.Model) || undefined,
 				maxTokens: this._configurationService.getValue<number>(XuanjiAiSettings.MaxTokens) || undefined,
 			};
 
-			for await (const chunk of this._aiService.chat(messages, options)) {
-				if (cancellationTokenSource.token.isCancellationRequested) {
-					break;
-				}
-
-				if (chunk.type === 'text') {
-					this._model.appendToLastAssistant(chunk.content);
-				} else if (chunk.type === 'thinking') {
-					this._model.appendThinking(chunk.content);
-				} else if (chunk.type === 'tool_use') {
-					this._model.addToolUse(formatToolLabel(chunk.toolName), formatToolPayload(chunk.toolInput) || chunk.content);
-				} else if (chunk.type === 'tool_result') {
-					this._model.addToolResult(formatToolLabel(chunk.toolName), chunk.content);
-				} else if (chunk.type === 'error') {
-					this._model.addError(chunk.content);
-				}
-			}
+			await this._toolExecutor.executeConversation(
+				conversation,
+				options,
+				{
+					onText: text => this._model.appendToLastAssistant(text),
+					onThinking: text => this._model.appendThinking(text),
+					onToolUse: toolCall => this._model.addToolUse(formatToolLabel(toolCall.name), formatToolPayload(toolCall.input)),
+					onToolResult: (toolCall, result) => this._handleToolResult(toolCall, result),
+					onError: message => this._model.addError(message),
+				},
+				cancellationTokenSource.token,
+			);
 		} catch (error) {
 			this._model.addError(getErrorMessage(error));
 		} finally {
@@ -118,4 +107,29 @@ export class XuanjiChatService extends Disposable {
 		this.stopGeneration();
 		this._model.clear();
 	}
+
+	private async _buildConversation(messages: IChatMessage[]): Promise<IChatMessage[]> {
+		const conversation = [...messages];
+		if (!this._rulesProvider) {
+			return conversation;
+		}
+
+		try {
+			const rules = await this._rulesProvider.collectRules();
+			if (rules) {
+				conversation.unshift({ role: 'system', content: rules });
+			}
+		} catch {
+			// Ignore rules loading failures for chat requests.
+		}
+
+		return conversation;
+	}
+
+	private _handleToolResult(toolCall: IChatToolCall, result: IToolInvocationResult): void {
+		const label = formatToolLabel(toolCall.name);
+		const content = result.content || '<empty result>';
+		this._model.addToolResult(result.isError ? `${label} (failed)` : label, content);
+	}
 }
+

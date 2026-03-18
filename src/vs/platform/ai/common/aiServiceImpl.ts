@@ -3,6 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { CancellationToken } from '../../../base/common/cancellation.js';
 import { IAIService, IChatMessage, IChatChunk, IChatOptions, ICompletionContext, ICompletionResult, IAIProvider } from './aiService.js';
 
 const DESKTOP_REQUIRED_MSG = 'AI features require the desktop build of XuanJi IDE.';
@@ -14,7 +15,7 @@ const DESKTOP_REQUIRED_MSG = 'AI features require the desktop build of XuanJi ID
 export class BrowserAIServiceImpl implements IAIService {
 	declare readonly _serviceBrand: undefined;
 
-	async *chat(_messages: IChatMessage[], _options: IChatOptions): AsyncIterable<IChatChunk> {
+	async *chat(_messages: IChatMessage[], _options: IChatOptions, _token?: CancellationToken): AsyncIterable<IChatChunk> {
 		yield { type: 'error', content: DESKTOP_REQUIRED_MSG };
 	}
 

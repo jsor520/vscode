@@ -97,7 +97,7 @@ export class ElectronAIServiceImpl extends Disposable implements IAIService {
 		return this._configService.getValue<number>(XuanjiAiSettings.MaxTokens) || 4096;
 	}
 
-	async *chat(messages: IChatMessage[], options: IChatOptions): AsyncIterable<IChatChunk> {
+	async *chat(messages: IChatMessage[], options: IChatOptions, token?: CancellationToken): AsyncIterable<IChatChunk> {
 		try {
 			const client = await this._getClient();
 			const mergedOptions: IChatOptions = {
@@ -108,7 +108,7 @@ export class ElectronAIServiceImpl extends Disposable implements IAIService {
 			};
 
 			this._logService.debug('[XuanJi AI] Chat request', { model: mergedOptions.model, messageCount: messages.length });
-			yield* client.chatStream(messages, mergedOptions);
+			yield* client.chatStream(messages, mergedOptions, token);
 		} catch (error) {
 			this._logService.error('[XuanJi AI] Chat request failed.', error);
 			yield { type: 'error', content: getErrorMessage(error) };

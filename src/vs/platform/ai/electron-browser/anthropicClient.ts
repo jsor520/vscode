@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { CancellationToken } from '../../../base/common/cancellation.js';
-import { IChatChunk, IChatMessage, IChatOptions } from '../common/aiService.js';
+import { IChatChunk, IChatMessage, IChatOptions, IChatToolCall, ITool } from '../common/aiService.js';
 
 const ANTHROPIC_API_VERSION = '2023-06-01';
 const MAX_RETRIES = 3;
@@ -17,9 +17,31 @@ interface ITextBlock {
 	text: string;
 }
 
+interface IToolUseBlock {
+	type: 'tool_use';
+	id: string;
+	name: string;
+	input: unknown;
+}
+
+interface IToolResultBlock {
+	type: 'tool_result';
+	tool_use_id: string;
+	content: string;
+	is_error?: boolean;
+}
+
+type AnthropicContentBlock = ITextBlock | IToolUseBlock | IToolResultBlock;
+
 interface AnthropicMessage {
 	role: AnthropicRole;
-	content: string;
+	content: string | AnthropicContentBlock[];
+}
+
+interface IAnthropicToolDefinition {
+	name: string;
+	description: string;
+	input_schema: object;
 }
 
 interface AnthropicRequest {
@@ -29,12 +51,21 @@ interface AnthropicRequest {
 	messages: AnthropicMessage[];
 	stream: boolean;
 	temperature?: number;
+	tools?: IAnthropicToolDefinition[];
+}
+
+interface IAnthropicContentBlockPayload {
+	type?: string;
+	id?: string;
+	name?: string;
+	input?: unknown;
 }
 
 interface IAnthropicDeltaEvent {
 	type?: string;
 	text?: string;
 	thinking?: string;
+	partial_json?: string;
 }
 
 interface IAnthropicErrorEvent {
@@ -43,12 +74,22 @@ interface IAnthropicErrorEvent {
 
 interface IAnthropicEvent {
 	type?: string;
+	index?: number;
+	content_block?: IAnthropicContentBlockPayload;
 	delta?: IAnthropicDeltaEvent;
 	error?: IAnthropicErrorEvent;
 }
 
 interface IAnthropicCompletionResponse {
 	content?: unknown;
+}
+
+interface ITrackedAnthropicBlock {
+	type: 'text' | 'thinking' | 'tool_use';
+	id?: string;
+	name?: string;
+	input?: unknown;
+	partialJson: string;
 }
 
 class AIRequestError extends Error {
@@ -91,6 +132,68 @@ function extractTextFromContent(content: unknown): string {
 	return content.map(item => extractTextCandidate(item)).join('');
 }
 
+function toAnthropicToolDefinition(tool: ITool): IAnthropicToolDefinition {
+	return {
+		name: tool.name,
+		description: tool.description,
+		input_schema: tool.inputSchema,
+	};
+}
+
+function serializeAnthropicToolCall(toolCall: IChatToolCall, index: number): IToolUseBlock {
+	return {
+		type: 'tool_use',
+		id: toolCall.id || `tool_${index}`,
+		name: toolCall.name,
+		input: toolCall.input ?? {},
+	};
+}
+
+function toAnthropicMessage(message: IChatMessage): AnthropicMessage {
+	if (message.role === 'tool') {
+		return {
+			role: 'user',
+			content: [{
+				type: 'tool_result',
+				tool_use_id: message.toolCallId || message.toolName || 'tool',
+				content: message.content,
+			}],
+		};
+	}
+
+	const content = message.attachments?.length
+		? `${message.attachments.map(attachment => `<file name="${attachment.name}">\n${attachment.content}\n</file>`).join('\n')}\n\n${message.content}`
+		: message.content;
+	const blocks: AnthropicContentBlock[] = [];
+	if (content) {
+		blocks.push({ type: 'text', text: content });
+	}
+	for (const [index, toolCall] of (message.toolCalls ?? []).entries()) {
+		blocks.push(serializeAnthropicToolCall(toolCall, index));
+	}
+
+	return {
+		role: message.role === 'assistant' ? 'assistant' : 'user',
+		content: blocks.length === 1 && blocks[0].type === 'text' ? blocks[0].text : blocks,
+	};
+}
+
+function parseToolInput(input: unknown, partialJson: string): unknown {
+	if (!partialJson.trim()) {
+		return input ?? {};
+	}
+
+	try {
+		const parsed = JSON.parse(partialJson);
+		if (isRecord(input) && isRecord(parsed)) {
+			return { ...input, ...parsed };
+		}
+		return parsed;
+	} catch {
+		return partialJson;
+	}
+}
+
 export class AnthropicClient {
 	constructor(
 		private readonly _apiKey: string | undefined,
@@ -116,10 +219,7 @@ export class AnthropicClient {
 				continue;
 			}
 
-			const content = message.attachments?.length
-				? `${message.attachments.map(attachment => `<file name="${attachment.name}">\n${attachment.content}\n</file>`).join('\n')}\n\n${message.content}`
-				: message.content;
-			apiMessages.push({ role: message.role, content });
+			apiMessages.push(toAnthropicMessage(message));
 		}
 
 		const body: AnthropicRequest = {
@@ -134,6 +234,9 @@ export class AnthropicClient {
 		}
 		if (options.temperature !== undefined) {
 			body.temperature = options.temperature;
+		}
+		if (options.tools?.length) {
+			body.tools = options.tools.map(toAnthropicToolDefinition);
 		}
 
 		yield* this._requestWithRetry(body, token);
@@ -228,6 +331,7 @@ export class AnthropicClient {
 	): AsyncIterable<IChatChunk> {
 		const reader = body.getReader();
 		const decoder = new TextDecoder();
+		const blocks = new Map<number, ITrackedAnthropicBlock>();
 		let buffer = '';
 
 		try {
@@ -260,9 +364,62 @@ export class AnthropicClient {
 
 					try {
 						const event = JSON.parse(data) as unknown;
-						const parsed = this._parseEvent(event);
-						if (parsed) {
-							yield parsed;
+						const parsedEvent = event as IAnthropicEvent;
+						switch (parsedEvent.type) {
+							case 'content_block_start': {
+								const blockType = parsedEvent.content_block?.type;
+								if (blockType === 'tool_use') {
+									blocks.set(parsedEvent.index ?? 0, {
+										type: 'tool_use',
+										id: parsedEvent.content_block?.id,
+										name: parsedEvent.content_block?.name,
+										input: parsedEvent.content_block?.input,
+										partialJson: '',
+									});
+								} else if (blockType === 'thinking') {
+									blocks.set(parsedEvent.index ?? 0, { type: 'thinking', partialJson: '' });
+								} else {
+									blocks.set(parsedEvent.index ?? 0, { type: 'text', partialJson: '' });
+								}
+								break;
+							}
+							case 'content_block_delta': {
+								const block = blocks.get(parsedEvent.index ?? 0);
+								if (!block) {
+									break;
+								}
+
+								if (parsedEvent.delta?.type === 'text_delta' && typeof parsedEvent.delta.text === 'string') {
+									yield { type: 'text', content: parsedEvent.delta.text };
+								} else if (parsedEvent.delta?.type === 'thinking_delta' && typeof parsedEvent.delta.thinking === 'string') {
+									yield { type: 'thinking', content: parsedEvent.delta.thinking };
+								} else if (parsedEvent.delta?.type === 'input_json_delta' && typeof parsedEvent.delta.partial_json === 'string') {
+									block.partialJson += parsedEvent.delta.partial_json;
+								}
+								break;
+							}
+							case 'content_block_stop': {
+								const block = blocks.get(parsedEvent.index ?? 0);
+								blocks.delete(parsedEvent.index ?? 0);
+								if (block?.type === 'tool_use') {
+									yield {
+										type: 'tool_use',
+										content: '',
+										toolCallId: block.id,
+										toolName: block.name,
+										toolInput: parseToolInput(block.input, block.partialJson),
+									};
+								}
+								break;
+							}
+							case 'message_stop':
+								yield { type: 'done', content: '' };
+								return;
+							case 'error':
+								yield { type: 'error', content: parsedEvent.error?.message || 'Unknown error.' };
+								return;
+							default:
+								break;
 						}
 					} catch {
 						// Ignore malformed SSE payloads and continue.
@@ -274,32 +431,6 @@ export class AnthropicClient {
 		}
 
 		yield { type: 'done', content: '' };
-	}
-
-	private _parseEvent(event: unknown): IChatChunk | undefined {
-		if (!isRecord(event)) {
-			return undefined;
-		}
-
-		const parsedEvent = event as IAnthropicEvent;
-		switch (parsedEvent.type) {
-			case 'content_block_delta': {
-				const delta = parsedEvent.delta;
-				if (delta?.type === 'text_delta' && typeof delta.text === 'string') {
-					return { type: 'text', content: delta.text };
-				}
-				if (delta?.type === 'thinking_delta' && typeof delta.thinking === 'string') {
-					return { type: 'thinking', content: delta.thinking };
-				}
-				return undefined;
-			}
-			case 'message_stop':
-				return { type: 'done', content: '' };
-			case 'error':
-				return { type: 'error', content: parsedEvent.error?.message || 'Unknown error.' };
-			default:
-				return undefined;
-		}
 	}
 
 	private async _requestNonStream(

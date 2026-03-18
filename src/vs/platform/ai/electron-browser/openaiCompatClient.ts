@@ -4,14 +4,39 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { CancellationToken } from '../../../base/common/cancellation.js';
-import { IChatChunk, IChatMessage, IChatOptions } from '../common/aiService.js';
+import { IChatChunk, IChatMessage, IChatOptions, IChatToolCall, ITool } from '../common/aiService.js';
 
 const MAX_RETRIES = 3;
 const BASE_RETRY_DELAY_MS = 1000;
 
 interface OpenAIMessage {
-	role: 'system' | 'user' | 'assistant';
+	role: 'system' | 'user' | 'assistant' | 'tool';
 	content: string;
+	name?: string;
+	tool_call_id?: string;
+	tool_calls?: IOpenAIToolCall[];
+}
+
+interface IOpenAIFunctionDefinition {
+	name: string;
+	description: string;
+	parameters: object;
+}
+
+interface IOpenAIToolDefinition {
+	type: 'function';
+	function: IOpenAIFunctionDefinition;
+}
+
+interface IOpenAIToolCallFunction {
+	name?: string;
+	arguments?: string;
+}
+
+interface IOpenAIToolCall {
+	id?: string;
+	type: 'function';
+	function: IOpenAIToolCallFunction;
 }
 
 interface OpenAIRequest {
@@ -20,14 +45,25 @@ interface OpenAIRequest {
 	messages: OpenAIMessage[];
 	stream: boolean;
 	temperature?: number;
+	tools?: IOpenAIToolDefinition[];
+	tool_choice?: 'auto';
+}
+
+interface IOpenAIToolCallDelta {
+	index?: number;
+	id?: string;
+	type?: 'function';
+	function?: IOpenAIToolCallFunction;
 }
 
 interface IOpenAIDelta {
 	content?: string;
+	tool_calls?: IOpenAIToolCallDelta[];
 }
 
 interface IOpenAIMessagePayload {
 	content?: string | Array<unknown>;
+	tool_calls?: IOpenAIToolCall[];
 }
 
 interface IOpenAIChoice {
@@ -39,6 +75,12 @@ interface IOpenAIChoice {
 
 interface IOpenAIResponse {
 	choices?: IOpenAIChoice[];
+}
+
+interface ITrackedToolCall {
+	id?: string;
+	name: string;
+	arguments: string;
 }
 
 class AIRequestError extends Error {
@@ -91,6 +133,61 @@ function extractOpenAICompletionText(parsed: IOpenAIResponse): string {
 	return '';
 }
 
+function toOpenAIToolDefinition(tool: ITool): IOpenAIToolDefinition {
+	return {
+		type: 'function',
+		function: {
+			name: tool.name,
+			description: tool.description,
+			parameters: tool.inputSchema,
+		},
+	};
+}
+
+function serializeOpenAIToolCall(toolCall: IChatToolCall): IOpenAIToolCall {
+	return {
+		id: toolCall.id,
+		type: 'function',
+		function: {
+			name: toolCall.name,
+			arguments: JSON.stringify(toolCall.input ?? {}),
+		},
+	};
+}
+
+function parseToolArguments(rawArguments: string): unknown {
+	if (!rawArguments.trim()) {
+		return {};
+	}
+
+	try {
+		return JSON.parse(rawArguments);
+	} catch {
+		return rawArguments;
+	}
+}
+
+function toOpenAIMessage(message: IChatMessage): OpenAIMessage {
+	const content = message.attachments?.length
+		? `${message.attachments.map(attachment => `<file name="${attachment.name}">\n${attachment.content}\n</file>`).join('\n')}\n\n${message.content}`
+		: message.content;
+
+	if (message.role === 'tool') {
+		return {
+			role: 'tool',
+			content,
+			name: message.toolName,
+			tool_call_id: message.toolCallId,
+		};
+	}
+
+	return {
+		role: message.role,
+		content,
+		tool_calls: message.toolCalls?.map(serializeOpenAIToolCall),
+	};
+}
+
 export class OpenAICompatClient {
 	constructor(
 		private readonly _apiKey: string | undefined,
@@ -107,21 +204,18 @@ export class OpenAICompatClient {
 		options: IChatOptions,
 		token?: CancellationToken,
 	): AsyncIterable<IChatChunk> {
-		const apiMessages: OpenAIMessage[] = messages.map(message => {
-			const content = message.attachments?.length
-				? `${message.attachments.map(attachment => `<file name="${attachment.name}">\n${attachment.content}\n</file>`).join('\n')}\n\n${message.content}`
-				: message.content;
-			return { role: message.role, content };
-		});
-
 		const body: OpenAIRequest = {
 			model: options.model || 'gpt-4o',
 			max_tokens: options.maxTokens || 4096,
-			messages: apiMessages,
+			messages: messages.map(toOpenAIMessage),
 			stream: true,
 		};
 		if (options.temperature !== undefined) {
 			body.temperature = options.temperature;
+		}
+		if (options.tools?.length) {
+			body.tools = options.tools.map(toOpenAIToolDefinition);
+			body.tool_choice = 'auto';
 		}
 
 		yield* this._requestWithRetry(body, token);
@@ -217,6 +311,7 @@ export class OpenAICompatClient {
 	): AsyncIterable<IChatChunk> {
 		const reader = body.getReader();
 		const decoder = new TextDecoder();
+		const toolCalls = new Map<number, ITrackedToolCall>();
 		let buffer = '';
 
 		try {
@@ -249,11 +344,40 @@ export class OpenAICompatClient {
 
 					try {
 						const event = JSON.parse(data) as IOpenAIResponse;
-						const content = event.choices?.[0]?.delta?.content;
+						const choice = event.choices?.[0];
+						if (!choice) {
+							continue;
+						}
+
+						const content = choice.delta?.content;
 						if (content) {
 							yield { type: 'text', content };
 						}
-						if (event.choices?.[0]?.finish_reason === 'stop') {
+
+						for (const toolCallDelta of choice.delta?.tool_calls ?? []) {
+							const index = toolCallDelta.index ?? 0;
+							const existing = toolCalls.get(index) ?? { name: '', arguments: '' };
+							existing.id = toolCallDelta.id ?? existing.id;
+							existing.name += toolCallDelta.function?.name ?? '';
+							existing.arguments += toolCallDelta.function?.arguments ?? '';
+							toolCalls.set(index, existing);
+						}
+
+						if (choice.finish_reason === 'tool_calls') {
+							for (const [, toolCall] of [...toolCalls.entries()].sort((a, b) => a[0] - b[0])) {
+								yield {
+									type: 'tool_use',
+									content: '',
+									toolCallId: toolCall.id,
+									toolName: toolCall.name,
+									toolInput: parseToolArguments(toolCall.arguments),
+								};
+							}
+							yield { type: 'done', content: '' };
+							return;
+						}
+
+						if (choice.finish_reason === 'stop') {
 							yield { type: 'done', content: '' };
 							return;
 						}

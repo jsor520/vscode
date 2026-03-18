@@ -3,14 +3,24 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { CancellationToken } from '../../../base/common/cancellation.js';
 import { createDecorator } from '../../instantiation/common/instantiation.js';
 
 export const IAIService = createDecorator<IAIService>('aiService');
 
+export interface IChatToolCall {
+	id?: string;
+	name: string;
+	input: unknown;
+}
+
 export interface IChatMessage {
-	role: 'system' | 'user' | 'assistant';
+	role: 'system' | 'user' | 'assistant' | 'tool';
 	content: string;
 	attachments?: IContextAttachment[];
+	toolCallId?: string;
+	toolName?: string;
+	toolCalls?: IChatToolCall[];
 }
 
 export interface IContextAttachment {
@@ -22,6 +32,7 @@ export interface IContextAttachment {
 export interface IChatChunk {
 	type: 'text' | 'tool_use' | 'tool_result' | 'thinking' | 'error' | 'done';
 	content: string;
+	toolCallId?: string;
 	toolName?: string;
 	toolInput?: unknown;
 }
@@ -61,7 +72,7 @@ export interface IAIProvider {
 export interface IAIService {
 	readonly _serviceBrand: undefined;
 
-	chat(messages: IChatMessage[], options: IChatOptions): AsyncIterable<IChatChunk>;
+	chat(messages: IChatMessage[], options: IChatOptions, token?: CancellationToken): AsyncIterable<IChatChunk>;
 	complete(context: ICompletionContext): Promise<ICompletionResult[]>;
 	embed(text: string): Promise<number[]>;
 	getActiveProvider(): IAIProvider;

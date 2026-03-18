@@ -22,6 +22,7 @@ import { ILogService } from '../../../../../platform/log/common/log.js';
 import { XuanjiChatWidget } from './xuanjiChatWidget.js';
 import { XuanjiChatService } from './xuanjiChatService.js';
 import { XuanjiRulesEngine } from '../../common/rules/rulesEngine.js';
+import { IToolRegistry } from '../../common/toolRegistry.js';
 
 export const XUANJI_CHAT_VIEW_ID = 'workbench.view.xuanjiChat';
 export const XUANJI_CHAT_CONTAINER_ID = 'workbench.panel.xuanjiChat';
@@ -46,6 +47,7 @@ export class XuanjiChatViewPane extends ViewPane {
 		@IWorkspaceContextService private readonly _workspaceService: IWorkspaceContextService,
 		@IFileService private readonly _fileService: IFileService,
 		@IAIService private readonly _aiService: IAIService,
+		@IToolRegistry private readonly _toolRegistry: IToolRegistry,
 		@ICommandService private readonly _commandService: ICommandService,
 		@ILogService private readonly _logService: ILogService,
 	) {
@@ -59,6 +61,7 @@ export class XuanjiChatViewPane extends ViewPane {
 
 		this._chatService = this._register(new XuanjiChatService(
 			this._aiService,
+			this._toolRegistry,
 			this.configurationService,
 			rulesEngine,
 		));
