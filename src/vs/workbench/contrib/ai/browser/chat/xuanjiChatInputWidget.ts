@@ -14,7 +14,7 @@ import { IConfigurationService } from '../../../../../platform/configuration/com
 import { IFileService, IFileStat } from '../../../../../platform/files/common/files.js';
 import { IQuickInputService, IQuickPickItem } from '../../../../../platform/quickinput/common/quickInput.js';
 import { IContextAttachment } from '../../../../../platform/ai/common/aiService.js';
-import { ICustomModelConfig, XuanjiAiSettings } from '../../../../../platform/ai/common/aiSettings.js';
+import { ICustomModelConfig, XuanjiAiSettings, XuanjiChatMode } from '../../../../../platform/ai/common/aiSettings.js';
 import { IWorkspaceContextService } from '../../../../../platform/workspace/common/workspace.js';
 
 interface IChatInputSubmitEvent {
@@ -32,10 +32,13 @@ export class XuanjiChatInputWidget extends Disposable {
 	private readonly _card: HTMLElement;
 	private readonly _attachments: IContextAttachment[] = [];
 	private readonly _attachmentBar: HTMLElement;
+	private readonly _modeLabel: HTMLElement;
 	private readonly _modelLabel: HTMLElement;
 	private readonly _sendButton: HTMLElement;
+	private _modeDropdown: HTMLElement | undefined;
 	private _modelDropdown: HTMLElement | undefined;
 	private _modelListElement: HTMLElement | undefined;
+	private _isPlanReview = false;
 
 	private readonly _onDidSubmit = this._register(new Emitter<IChatInputSubmitEvent>());
 	readonly onDidSubmit: Event<IChatInputSubmitEvent> = this._onDidSubmit.event;
@@ -87,12 +90,14 @@ export class XuanjiChatInputWidget extends Disposable {
 		const toolbarLeft = document.createElement('div');
 		toolbarLeft.className = 'xj-toolbar-left';
 
-		const agentPill = document.createElement('div');
-		agentPill.className = 'xj-pill xj-agent-pill';
-		agentPill.appendChild(this._createIconSpan(Codicon.symbolEvent));
-		agentPill.appendChild(document.createTextNode('Agent'));
-		agentPill.appendChild(this._createChevron());
-		toolbarLeft.appendChild(agentPill);
+		this._modeLabel = document.createElement('div');
+		this._modeLabel.className = 'xj-pill xj-agent-pill';
+		this._updateModeLabel();
+		this._modeLabel.addEventListener('click', event => {
+			event.stopPropagation();
+			this._toggleModeDropdown();
+		});
+		toolbarLeft.appendChild(this._modeLabel);
 
 		this._modelLabel = document.createElement('div');
 		this._modelLabel.className = 'xj-pill xj-model-pill';
@@ -126,11 +131,13 @@ export class XuanjiChatInputWidget extends Disposable {
 		toolbar.appendChild(toolbarRight);
 		this._card.appendChild(toolbar);
 
-		this._register(DOM.addDisposableListener(DOM.getWindow(this._card).document, 'click', () => {
-			this._closeModelDropdown();
-		}));
+		this._register(DOM.addDisposableListener(DOM.getWindow(this._card).document, 'click', () => this._closeDropdowns()));
 
 		this._register(this._configurationService.onDidChangeConfiguration(event => {
+			if (event.affectsConfiguration(XuanjiAiSettings.ChatMode)) {
+				this._updateModeLabel();
+				this._updatePlaceholder();
+			}
 			if (event.affectsConfiguration(XuanjiAiSettings.Model) || event.affectsConfiguration(XuanjiAiSettings.CustomModels)) {
 				this._updateModelLabel();
 				if (this._modelListElement) {
@@ -138,6 +145,8 @@ export class XuanjiChatInputWidget extends Disposable {
 				}
 			}
 		}));
+
+		this._updatePlaceholder();
 
 		container.appendChild(this._card);
 		parent.appendChild(container);
@@ -150,6 +159,11 @@ export class XuanjiChatInputWidget extends Disposable {
 	setEnabled(enabled: boolean): void {
 		this._textarea.disabled = !enabled;
 		this._sendButton.classList.toggle('disabled', !enabled);
+	}
+
+	setPlanReviewState(enabled: boolean): void {
+		this._isPlanReview = enabled;
+		this._updatePlaceholder();
 	}
 
 	private _createIconSpan(icon: ThemeIcon): HTMLElement {
@@ -183,6 +197,33 @@ export class XuanjiChatInputWidget extends Disposable {
 		this._modelLabel.appendChild(this._createChevron());
 	}
 
+	private _getChatMode(): XuanjiChatMode {
+		const mode = this._configurationService.getValue<string>(XuanjiAiSettings.ChatMode);
+		if (mode === 'agent' || mode === 'plan') {
+			return mode;
+		}
+		return 'chat';
+	}
+
+	private _updateModeLabel(): void {
+		const currentMode = this._getChatMode();
+		const label = currentMode === 'agent' ? 'Agent' : currentMode === 'plan' ? 'Plan' : 'Chat';
+		const icon = currentMode === 'plan' ? Codicon.listOrdered : currentMode === 'agent' ? Codicon.symbolEvent : Codicon.commentDiscussion;
+
+		this._modeLabel.textContent = '';
+		this._modeLabel.appendChild(this._createIconSpan(icon));
+		this._modeLabel.appendChild(document.createTextNode(label));
+		this._modeLabel.appendChild(this._createChevron());
+	}
+
+	private _toggleModeDropdown(): void {
+		if (this._modeDropdown) {
+			this._closeModeDropdown();
+		} else {
+			this._openModeDropdown();
+		}
+	}
+
 	private _toggleModelDropdown(): void {
 		if (this._modelDropdown) {
 			this._closeModelDropdown();
@@ -197,8 +238,69 @@ export class XuanjiChatInputWidget extends Disposable {
 		this._modelListElement = undefined;
 	}
 
-	private _openModelDropdown(): void {
+	private _closeModeDropdown(): void {
+		this._modeDropdown?.remove();
+		this._modeDropdown = undefined;
+	}
+
+	private _closeDropdowns(): void {
+		this._closeModeDropdown();
 		this._closeModelDropdown();
+	}
+
+	private _openModeDropdown(): void {
+		this._closeDropdowns();
+
+		const dropdown = document.createElement('div');
+		dropdown.className = 'xj-model-dropdown xj-mode-dropdown';
+		dropdown.addEventListener('click', event => event.stopPropagation());
+
+		const modes: Array<{ mode: XuanjiChatMode; label: string; description: string }> = [
+			{ mode: 'chat', label: 'Chat', description: 'Normal conversation without a planning gate.' },
+			{ mode: 'agent', label: 'Agent', description: 'Plan internally before using tools.' },
+			{ mode: 'plan', label: 'Plan', description: 'Draft a visible plan and wait for approval.' },
+		];
+		const currentMode = this._getChatMode();
+
+		for (const entry of modes) {
+			const item = document.createElement('div');
+			item.className = 'xj-dropdown-item';
+			if (entry.mode === currentMode) {
+				item.classList.add('selected');
+			}
+
+			const label = document.createElement('div');
+			label.className = 'xj-dropdown-text';
+			const title = document.createElement('div');
+			title.className = 'xj-dropdown-item-name';
+			title.textContent = entry.label;
+			label.appendChild(title);
+
+			const description = document.createElement('div');
+			description.className = 'xj-dropdown-item-description';
+			description.textContent = entry.description;
+			label.appendChild(description);
+			item.appendChild(label);
+
+			if (entry.mode === currentMode) {
+				const check = document.createElement('span');
+				check.className = `xj-dropdown-check ${ThemeIcon.asClassName(Codicon.check)}`;
+				item.appendChild(check);
+			}
+
+			item.addEventListener('click', () => {
+				void this._configurationService.updateValue(XuanjiAiSettings.ChatMode, entry.mode);
+				this._closeModeDropdown();
+			});
+			dropdown.appendChild(item);
+		}
+
+		this._card.appendChild(dropdown);
+		this._modeDropdown = dropdown;
+	}
+
+	private _openModelDropdown(): void {
+		this._closeDropdowns();
 
 		const dropdown = document.createElement('div');
 		dropdown.className = 'xj-model-dropdown';
@@ -291,6 +393,24 @@ export class XuanjiChatInputWidget extends Disposable {
 	private _getProviderMonogram(provider: string): string {
 		const normalized = provider.toUpperCase().replace(/[^A-Z0-9]/g, '');
 		return normalized.slice(0, 2) || 'AI';
+	}
+
+	private _updatePlaceholder(): void {
+		if (this._isPlanReview) {
+			this._textarea.placeholder = 'Review the plan, type feedback to revise it, or use Run Plan.';
+			return;
+		}
+
+		switch (this._getChatMode()) {
+			case 'agent':
+				this._textarea.placeholder = 'Describe a task. Agent mode will plan internally before using tools.';
+				return;
+			case 'plan':
+				this._textarea.placeholder = 'Describe a task. Plan mode will draft steps before execution.';
+				return;
+			default:
+				this._textarea.placeholder = 'Type a message. Press @ to attach files. Press Enter to send.';
+		}
 	}
 
 	private _submit(): void {

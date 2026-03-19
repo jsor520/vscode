@@ -98,6 +98,8 @@ export class XuanjiChatMessageRenderer extends Disposable {
 		switch (this._message.kind) {
 			case 'thinking':
 				return this._message.label || 'Reasoning';
+			case 'plan':
+				return this._message.label || 'Plan';
 			case 'tool_use':
 				return this._message.label ? `Tool: ${this._message.label}` : 'Tool Call';
 			case 'tool_result':

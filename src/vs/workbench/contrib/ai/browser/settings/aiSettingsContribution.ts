@@ -20,6 +20,13 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 			description: localize('xuanjiAi.model', "Selected AI model ID"),
 			scope: ConfigurationScope.APPLICATION,
 		},
+		[XuanjiAiSettings.ChatMode]: {
+			type: 'string',
+			default: 'chat',
+			enum: ['chat', 'agent', 'plan'],
+			description: localize('xuanjiAi.chatMode', "Default interaction mode for XuanJi AI chat. chat = normal conversation, agent = plan internally before using tools, plan = show a plan and wait for approval."),
+			scope: ConfigurationScope.APPLICATION,
+		},
 		[XuanjiAiSettings.MaxTokens]: {
 			type: 'number',
 			default: 4096,

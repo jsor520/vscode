@@ -5,6 +5,7 @@
 
 import assert from 'assert';
 import { CancellationToken } from '../../../../../base/common/cancellation.js';
+import { XuanjiAiSettings } from '../../../../../platform/ai/common/aiSettings.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { TestConfigurationService } from '../../../../../platform/configuration/test/common/testConfigurationService.js';
 import { IAIProvider, IAIService, IChatChunk, IChatMessage, IChatOptions } from '../../../../../platform/ai/common/aiService.js';
@@ -213,6 +214,109 @@ suite('XuanjiChatService', () => {
 				{ role: 'assistant', kind: 'tool_use', label: 'run_command', content: '```json\n{\n  "command": "echo hello"\n}\n```', isStreaming: false },
 				{ role: 'assistant', kind: 'tool_result', label: 'run_command', content: 'Exit code: 0\n\nStdout:\n\n```text\nhello\nworld\n```', isStreaming: false },
 				{ role: 'assistant', kind: 'message', label: undefined, content: 'Command finished.', isStreaming: false },
+			],
+		);
+	});
+
+	test('creates a visible plan in plan mode before execution', async () => {
+		const aiService = new StubAIService([[
+			{ type: 'thinking', content: 'Breaking the work down' },
+			{ type: 'text', content: '1. Inspect the existing flow.\n2. Update the implementation.\n3. Verify the result.' },
+			{ type: 'done', content: '' },
+		]]);
+		const service = store.add(new XuanjiChatService(
+			aiService,
+			store.add(new ToolRegistry()),
+			new TestConfigurationService({ [XuanjiAiSettings.ChatMode]: 'plan' }),
+		));
+
+		await service.sendMessage('Refactor the command flow');
+
+		assert.strictEqual(aiService.receivedRequests.length, 1);
+		assert.strictEqual(aiService.receivedRequests[0].options.tools, undefined);
+		assert.strictEqual(service.model.pendingPlan?.task, 'Refactor the command flow');
+		assert.strictEqual(service.model.pendingPlan?.plan, '1. Inspect the existing flow.\n2. Update the implementation.\n3. Verify the result.');
+		assert.deepStrictEqual(
+			service.model.messages.map(message => ({
+				role: message.role,
+				kind: message.kind,
+				label: message.label,
+				content: message.content,
+			})),
+			[
+				{ role: 'user', kind: 'message', label: undefined, content: 'Refactor the command flow' },
+				{ role: 'assistant', kind: 'thinking', label: 'Reasoning', content: 'Breaking the work down' },
+				{ role: 'assistant', kind: 'plan', label: 'Plan', content: '1. Inspect the existing flow.\n2. Update the implementation.\n3. Verify the result.' },
+			],
+		);
+	});
+
+	test('adds hidden planning guidance in agent mode', async () => {
+		const aiService = new StubAIService([[
+			{ type: 'text', content: 'Working on it.' },
+			{ type: 'done', content: '' },
+		]]);
+		const service = store.add(new XuanjiChatService(
+			aiService,
+			store.add(new ToolRegistry()),
+			new TestConfigurationService({ [XuanjiAiSettings.ChatMode]: 'agent' }),
+		));
+
+		await service.sendMessage('Investigate the bug');
+
+		assert.strictEqual(aiService.receivedRequests.length, 1);
+		assert.ok(aiService.receivedRequests[0].messages.some(message => message.role === 'system' && message.content.includes('Agent mode')));
+		assert.deepStrictEqual(
+			service.model.messages.map(message => ({
+				role: message.role,
+				kind: message.kind,
+				content: message.content,
+			})),
+			[
+				{ role: 'user', kind: 'message', content: 'Investigate the bug' },
+				{ role: 'assistant', kind: 'message', content: 'Working on it.' },
+			],
+		);
+	});
+
+	test('executes the approved plan after user confirmation', async () => {
+		const aiService = new StubAIService([
+			[
+				{ type: 'text', content: '1. Read the code.\n2. Make the edit.\n3. Run validation.' },
+				{ type: 'done', content: '' },
+			],
+			[
+				{ type: 'thinking', content: 'Following the approved plan' },
+				{ type: 'text', content: 'Execution complete.' },
+				{ type: 'done', content: '' },
+			],
+		]);
+		const service = store.add(new XuanjiChatService(
+			aiService,
+			store.add(new ToolRegistry()),
+			new TestConfigurationService({ [XuanjiAiSettings.ChatMode]: 'plan' }),
+		));
+
+		await service.sendMessage('Ship the planner');
+		await service.executePendingPlan();
+
+		assert.strictEqual(aiService.receivedRequests.length, 2);
+		assert.strictEqual(service.model.pendingPlan, undefined);
+		assert.strictEqual(aiService.receivedRequests[1].messages[0].role, 'system');
+		assert.ok(aiService.receivedRequests[1].messages.some(message => message.role === 'system' && message.content.includes('approved the following execution plan')));
+		assert.ok(aiService.receivedRequests[1].messages.some(message => message.role === 'user' && message.content.includes('Ship the planner')));
+		assert.deepStrictEqual(
+			service.model.messages.map(message => ({
+				role: message.role,
+				kind: message.kind,
+				label: message.label,
+				content: message.content,
+			})),
+			[
+				{ role: 'user', kind: 'message', label: undefined, content: 'Ship the planner' },
+				{ role: 'assistant', kind: 'plan', label: 'Plan', content: '1. Read the code.\n2. Make the edit.\n3. Run validation.' },
+				{ role: 'assistant', kind: 'thinking', label: 'Reasoning', content: 'Following the approved plan' },
+				{ role: 'assistant', kind: 'message', label: undefined, content: 'Execution complete.' },
 			],
 		);
 	});

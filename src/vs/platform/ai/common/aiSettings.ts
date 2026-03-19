@@ -5,6 +5,7 @@
 
 export const enum XuanjiAiSettings {
 	Model = 'xuanji.ai.model',
+	ChatMode = 'xuanji.ai.chatMode',
 	MaxTokens = 'xuanji.ai.maxTokens',
 	CompletionEnabled = 'xuanji.ai.completion.enabled',
 	CompletionDebounceMs = 'xuanji.ai.completion.debounceMs',
@@ -20,6 +21,7 @@ export const enum XuanjiAiSettings {
 }
 
 export type ApiFormat = 'anthropic' | 'openai';
+export type XuanjiChatMode = 'chat' | 'agent' | 'plan';
 
 export const API_FORMAT_OPTIONS: { value: ApiFormat; label: string }[] = [
 	{ value: 'anthropic', label: 'Anthropic Messages (Default)' },

@@ -20,6 +20,7 @@ export class XuanjiChatWidget extends Disposable {
 
 	private readonly _messagesContainer: HTMLElement;
 	private readonly _inputWidget: XuanjiChatInputWidget;
+	private readonly _planActionsContainer: HTMLElement;
 	private readonly _messageRenderers = new Map<string, XuanjiChatMessageRenderer>();
 	private readonly _messageRendererStore = this._register(new DisposableStore());
 
@@ -51,6 +52,37 @@ export class XuanjiChatWidget extends Disposable {
 		stopContainer.appendChild(stopButton);
 		container.appendChild(stopContainer);
 
+		this._planActionsContainer = document.createElement('div');
+		this._planActionsContainer.className = 'xuanji-chat-plan-actions';
+		this._planActionsContainer.style.display = 'none';
+
+		const planSummary = document.createElement('div');
+		planSummary.className = 'xuanji-chat-plan-summary';
+		planSummary.textContent = 'Plan ready for review';
+		this._planActionsContainer.appendChild(planSummary);
+
+		const planButtons = document.createElement('div');
+		planButtons.className = 'xuanji-chat-plan-buttons';
+
+		const runPlanButton = document.createElement('button');
+		runPlanButton.className = 'xuanji-chat-plan-btn primary';
+		runPlanButton.textContent = 'Run Plan';
+		runPlanButton.addEventListener('click', () => {
+			void this._chatService.executePendingPlan();
+		});
+		planButtons.appendChild(runPlanButton);
+
+		const regeneratePlanButton = document.createElement('button');
+		regeneratePlanButton.className = 'xuanji-chat-plan-btn';
+		regeneratePlanButton.textContent = 'Regenerate';
+		regeneratePlanButton.addEventListener('click', () => {
+			void this._chatService.regeneratePlan();
+		});
+		planButtons.appendChild(regeneratePlanButton);
+
+		this._planActionsContainer.appendChild(planButtons);
+		container.appendChild(this._planActionsContainer);
+
 		this._inputWidget = this._register(new XuanjiChatInputWidget(
 			container,
 			quickInputService,
@@ -74,8 +106,13 @@ export class XuanjiChatWidget extends Disposable {
 				this._messageRenderers.get(message.id)?.update();
 			}
 
+			const hasPendingPlan = !!this._chatService.model.pendingPlan;
+			this._planActionsContainer.style.display = hasPendingPlan ? '' : 'none';
+			runPlanButton.disabled = this._chatService.model.isGenerating;
+			regeneratePlanButton.disabled = this._chatService.model.isGenerating;
 			stopButton.style.display = this._chatService.model.isGenerating ? '' : 'none';
 			this._inputWidget.setEnabled(!this._chatService.model.isGenerating);
+			this._inputWidget.setPlanReviewState(hasPendingPlan);
 			this._scrollToBottom();
 		}));
 

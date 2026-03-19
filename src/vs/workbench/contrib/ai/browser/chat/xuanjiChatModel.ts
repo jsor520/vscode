@@ -6,8 +6,9 @@
 import { Emitter, Event } from '../../../../../base/common/event.js';
 import { Disposable } from '../../../../../base/common/lifecycle.js';
 import { IChatMessage, IContextAttachment } from '../../../../../platform/ai/common/aiService.js';
+import { IXuanjiPlanDraft } from '../../common/agentPlanner.js';
 
-export type XuanjiChatMessageKind = 'message' | 'thinking' | 'tool_use' | 'tool_result' | 'error';
+export type XuanjiChatMessageKind = 'message' | 'thinking' | 'tool_use' | 'tool_result' | 'error' | 'plan';
 
 export interface IXuanjiChatMessage {
 	readonly id: string;
@@ -24,6 +25,7 @@ export class XuanjiChatModel extends Disposable {
 
 	private readonly _messages: IXuanjiChatMessage[] = [];
 	private _isGenerating = false;
+	private _pendingPlan: IXuanjiPlanDraft | undefined;
 
 	private readonly _onDidChange = this._register(new Emitter<void>());
 	readonly onDidChange: Event<void> = this._onDidChange.event;
@@ -37,6 +39,10 @@ export class XuanjiChatModel extends Disposable {
 
 	get isGenerating(): boolean {
 		return this._isGenerating;
+	}
+
+	get pendingPlan(): IXuanjiPlanDraft | undefined {
+		return this._pendingPlan;
 	}
 
 	addUserMessage(content: string, attachments?: IContextAttachment[]): IXuanjiChatMessage {
@@ -71,6 +77,10 @@ export class XuanjiChatModel extends Disposable {
 		this._appendToAssistantMessage('thinking', text, 'Reasoning');
 	}
 
+	appendPlan(text: string): void {
+		this._appendToAssistantMessage('plan', text, 'Plan');
+	}
+
 	addToolUse(label: string, content: string, toolCallId?: string): void {
 		this._pushAssistantEvent('tool_use', content, label, false, toolCallId);
 	}
@@ -100,6 +110,12 @@ export class XuanjiChatModel extends Disposable {
 	clear(): void {
 		this._messages.length = 0;
 		this._isGenerating = false;
+		this._pendingPlan = undefined;
+		this._onDidChange.fire();
+	}
+
+	setPendingPlan(plan: IXuanjiPlanDraft | undefined): void {
+		this._pendingPlan = plan;
 		this._onDidChange.fire();
 	}
 
