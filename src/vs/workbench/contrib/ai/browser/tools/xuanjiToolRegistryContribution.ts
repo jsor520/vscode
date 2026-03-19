@@ -21,6 +21,8 @@ import { XuanjiAiSettings } from '../../../../../platform/ai/common/aiSettings.j
 import { IWorkbenchContribution } from '../../../../common/contributions.js';
 import { QueryBuilder } from '../../../../services/search/common/queryBuilder.js';
 import { ISearchService, resultIsMatch } from '../../../../services/search/common/search.js';
+import { ICommandExecutionResult, ICommandSandboxService } from '../../common/commandSandboxService.js';
+import { ICommandSandboxAssessment } from '../../common/commandSandboxPolicy.js';
 import { applyTextEdit } from '../../common/toolTextEdit.js';
 import { IToolRegistry, IXuanjiTool } from '../../common/toolRegistry.js';
 
@@ -67,10 +69,17 @@ interface IAskUserInput {
 	readonly password?: boolean;
 }
 
+interface IRunCommandInput {
+	readonly command: string;
+	readonly cwd?: string;
+	readonly timeoutMs?: number;
+}
+
 const DEFAULT_READ_FILE_MAX_CHARS = 16_000;
 const DEFAULT_LIST_DIRECTORY_MAX_ENTRIES = 200;
 const DEFAULT_SEARCH_MAX_RESULTS = 50;
 const PREVIEW_MAX_CHARS = 600;
+const COMMAND_OUTPUT_PREVIEW_MAX_CHARS = 16_000;
 
 export class XuanjiToolRegistryContribution implements IWorkbenchContribution {
 	static readonly ID = 'workbench.contrib.xuanjiToolRegistry';
@@ -85,6 +94,7 @@ export class XuanjiToolRegistryContribution implements IWorkbenchContribution {
 		@IConfigurationService private readonly _configurationService: IConfigurationService,
 		@IDialogService private readonly _dialogService: IDialogService,
 		@IQuickInputService private readonly _quickInputService: IQuickInputService,
+		@ICommandSandboxService private readonly _commandSandboxService: ICommandSandboxService,
 		@IInstantiationService instantiationService: IInstantiationService,
 	) {
 		this._queryBuilder = instantiationService.createInstance(QueryBuilder);
@@ -95,6 +105,7 @@ export class XuanjiToolRegistryContribution implements IWorkbenchContribution {
 		this._toolRegistry.registerTool(this._createSearchCodeTool());
 		this._toolRegistry.registerTool(this._createWriteFileTool());
 		this._toolRegistry.registerTool(this._createEditFileTool());
+		this._toolRegistry.registerTool(this._createRunCommandTool());
 		this._toolRegistry.registerTool(this._createAskUserTool());
 	}
 
@@ -190,9 +201,7 @@ export class XuanjiToolRegistryContribution implements IWorkbenchContribution {
 				}
 
 				return {
-					content: results.results
-						.map(result => this._formatResource(result.resource))
-						.join('\n'),
+					content: results.results.map(result => this._formatResource(result.resource)).join('\n'),
 				};
 			},
 		};
@@ -274,7 +283,7 @@ export class XuanjiToolRegistryContribution implements IWorkbenchContribution {
 				},
 				required: ['path', 'content'],
 			},
-			execute: async (rawInput, token) => {
+			execute: async rawInput => {
 				const input = rawInput as IWriteFileInput;
 				if (!input.path) {
 					throw new Error('write_file requires a path.');
@@ -350,6 +359,55 @@ export class XuanjiToolRegistryContribution implements IWorkbenchContribution {
 				await this._fileService.writeFile(resource, VSBuffer.fromString(result.content));
 				return {
 					content: `Updated ${this._formatResource(resource)} with ${result.replacements} replacement(s).`,
+				};
+			},
+		};
+	}
+
+	private _createRunCommandTool(): IXuanjiTool {
+		return {
+			name: 'run_command',
+			description: 'Execute a shell command in the current workspace using XuanJi sandbox rules.',
+			inputSchema: {
+				type: 'object',
+				properties: {
+					command: { type: 'string', description: 'Shell command to execute.' },
+					cwd: { type: 'string', description: 'Optional working directory. Defaults to the first workspace folder.' },
+					timeoutMs: { type: 'number', minimum: 1000, description: 'Optional timeout override in milliseconds.' },
+				},
+				required: ['command'],
+			},
+			execute: async (rawInput, token) => {
+				const input = rawInput as IRunCommandInput;
+				if (!input.command?.trim()) {
+					throw new Error('run_command requires a non-empty command.');
+				}
+
+				const assessment = this._commandSandboxService.assessCommand(input.command);
+				const cwd = this._resolveCommandWorkingDirectory(input.cwd);
+				if (assessment.requiresConfirmation) {
+					const confirmed = await this._dialogService.confirm({
+						type: Severity.Warning,
+						title: localize('xuanjiTools.runCommand.title', 'Allow AI to run a command?'),
+						message: localize('xuanjiTools.runCommand.message', 'Run command in {0}?', cwd.fsPath),
+						detail: `${this._describeCommandAssessment(assessment)}\n\n${this._createPreview(assessment.command, localize('xuanjiTools.runCommand.command', 'Command'))}`,
+						primaryButton: localize('xuanjiTools.runCommand.primary', 'Run Command'),
+						cancelButton: localize('xuanjiTools.cancel', 'Cancel'),
+					});
+					if (!confirmed.confirmed) {
+						return { content: 'The user cancelled the command execution.', isError: true };
+					}
+				}
+
+				const result = await this._commandSandboxService.executeCommand({
+					command: input.command,
+					cwd: cwd.fsPath,
+					timeoutMs: input.timeoutMs,
+				}, token);
+
+				return {
+					content: this._formatCommandResult(result),
+					isError: result.timedOut || (result.exitCode ?? 0) !== 0,
 				};
 			},
 		};
@@ -506,9 +564,7 @@ export class XuanjiToolRegistryContribution implements IWorkbenchContribution {
 	}
 
 	private _createPreview(content: string, title?: string): string {
-		const normalized = content.length > PREVIEW_MAX_CHARS
-			? `${content.slice(0, PREVIEW_MAX_CHARS)}\n...[truncated]`
-			: content;
+		const normalized = content.length > PREVIEW_MAX_CHARS ? `${content.slice(0, PREVIEW_MAX_CHARS)}\n...[truncated]` : content;
 		return title ? `${title}:\n${normalized}` : normalized;
 	}
 
@@ -522,5 +578,62 @@ export class XuanjiToolRegistryContribution implements IWorkbenchContribution {
 		}
 
 		await this._fileService.createFolder(parent);
+	}
+
+	private _resolveCommandWorkingDirectory(cwd?: string): URI {
+		const resource = cwd ? this._resolvePath(cwd) : this._getWorkspaceFolderResources()[0];
+		if (resource.scheme !== 'file') {
+			throw new Error('run_command currently supports only local file-system workspaces.');
+		}
+		return resource;
+	}
+
+	private _describeCommandAssessment(assessment: ICommandSandboxAssessment): string {
+		switch (assessment.reason) {
+			case 'blocked-pattern':
+				return localize('xuanjiTools.runCommand.reason.blocked', 'This command matches a blocked pattern: {0}', assessment.matchedBlockedPattern);
+			case 'strict':
+				return localize('xuanjiTools.runCommand.reason.strict', 'Sandbox mode is strict, so all commands require confirmation.');
+			case 'unlisted':
+				return localize('xuanjiTools.runCommand.reason.unlisted', 'This command is not in the safe allowlist and requires approval.');
+			case 'allowed':
+				return localize('xuanjiTools.runCommand.reason.allowed', 'This command is allowlisted.');
+			case 'yolo':
+				return localize('xuanjiTools.runCommand.reason.yolo', 'Sandbox mode is yolo, so the command is auto-approved.');
+			default:
+				return localize('xuanjiTools.runCommand.reason.default', 'The command requires confirmation.');
+		}
+	}
+
+	private _formatCommandResult(result: ICommandExecutionResult): string {
+		const sections = [
+			`Command: ${result.command}`,
+			`Working directory: ${result.cwd || '(default)'}`,
+			`Exit code: ${result.exitCode ?? '(unknown)'}`,
+			`Duration: ${result.durationMs}ms`,
+		];
+		if (result.signal) {
+			sections.push(`Signal: ${result.signal}`);
+		}
+		if (result.timedOut) {
+			sections.push('Timed out: true');
+		}
+		if (result.stdout) {
+			sections.push(`Stdout:\n\n\`\`\`text\n${this._truncateCommandOutput(result.stdout)}\n\`\`\``);
+		}
+		if (result.stderr) {
+			sections.push(`Stderr:\n\n\`\`\`text\n${this._truncateCommandOutput(result.stderr)}\n\`\`\``);
+		}
+		if (!result.stdout && !result.stderr) {
+			sections.push('No output was produced.');
+		}
+		return sections.join('\n\n');
+	}
+
+	private _truncateCommandOutput(output: string): string {
+		if (output.length <= COMMAND_OUTPUT_PREVIEW_MAX_CHARS) {
+			return output;
+		}
+		return `${output.slice(0, COMMAND_OUTPUT_PREVIEW_MAX_CHARS)}\n...[truncated]`;
 	}
 }

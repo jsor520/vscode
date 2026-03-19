@@ -7,6 +7,7 @@ import { localize } from '../../../../../nls.js';
 import { IConfigurationRegistry, Extensions as ConfigurationExtensions, ConfigurationScope } from '../../../../../platform/configuration/common/configurationRegistry.js';
 import { Registry } from '../../../../../platform/registry/common/platform.js';
 import { XuanjiAiSettings } from '../../../../../platform/ai/common/aiSettings.js';
+import { DEFAULT_ALLOWED_COMMANDS, DEFAULT_BLOCKED_PATTERNS, DEFAULT_COMMAND_TIMEOUT_MS, DEFAULT_SANDBOX_MODE } from '../../common/commandSandboxPolicy.js';
 
 Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).registerConfiguration({
 	id: 'xuanji.ai',
@@ -39,6 +40,39 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 			type: 'boolean',
 			default: false,
 			description: localize('xuanjiAi.tools.autoApproveFileEdits', "Skip confirmation dialogs for AI write_file and edit_file tools"),
+			scope: ConfigurationScope.APPLICATION,
+		},
+		[XuanjiAiSettings.SandboxMode]: {
+			type: 'string',
+			default: DEFAULT_SANDBOX_MODE,
+			enum: ['standard', 'strict', 'yolo'],
+			description: localize('xuanjiAi.tools.sandboxMode', "Command sandbox policy for AI run_command. standard = safe commands auto-run, strict = always ask, yolo = never ask."),
+			scope: ConfigurationScope.APPLICATION,
+		},
+		[XuanjiAiSettings.AllowedCommands]: {
+			type: 'array',
+			default: [...DEFAULT_ALLOWED_COMMANDS],
+			description: localize('xuanjiAi.tools.allowedCommands', "Commands or command prefixes that can run without confirmation in standard mode"),
+			items: {
+				type: 'string',
+			},
+			scope: ConfigurationScope.APPLICATION,
+		},
+		[XuanjiAiSettings.BlockedPatterns]: {
+			type: 'array',
+			default: [...DEFAULT_BLOCKED_PATTERNS],
+			description: localize('xuanjiAi.tools.blockedPatterns', "Command fragments that always require confirmation unless sandbox mode is yolo"),
+			items: {
+				type: 'string',
+			},
+			scope: ConfigurationScope.APPLICATION,
+		},
+		[XuanjiAiSettings.CommandTimeoutMs]: {
+			type: 'number',
+			default: DEFAULT_COMMAND_TIMEOUT_MS,
+			minimum: 1000,
+			maximum: 600000,
+			description: localize('xuanjiAi.tools.commandTimeoutMs', "Maximum time in milliseconds before AI run_command is terminated"),
 			scope: ConfigurationScope.APPLICATION,
 		},
 		[XuanjiAiSettings.CompletionEnabled]: {

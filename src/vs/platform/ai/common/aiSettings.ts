@@ -13,6 +13,10 @@ export const enum XuanjiAiSettings {
 	Credentials = 'xuanji.ai.credentials',
 	ToolMaxCalls = 'xuanji.ai.tools.maxCalls',
 	AutoApproveFileEdits = 'xuanji.ai.tools.autoApproveFileEdits',
+	SandboxMode = 'xuanji.ai.tools.sandboxMode',
+	AllowedCommands = 'xuanji.ai.tools.allowedCommands',
+	BlockedPatterns = 'xuanji.ai.tools.blockedPatterns',
+	CommandTimeoutMs = 'xuanji.ai.tools.commandTimeoutMs',
 }
 
 export type ApiFormat = 'anthropic' | 'openai';

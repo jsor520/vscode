@@ -39,6 +39,24 @@ export interface IResolvedProcessInformation {
 	}[];
 }
 
+export interface IProcessCommandRequest {
+	readonly id: string;
+	readonly command: string;
+	readonly cwd?: string;
+	readonly timeoutMs?: number;
+}
+
+export interface IProcessCommandResult {
+	readonly command: string;
+	readonly cwd?: string;
+	readonly stdout: string;
+	readonly stderr: string;
+	readonly exitCode: number | null;
+	readonly signal?: string;
+	readonly timedOut: boolean;
+	readonly durationMs: number;
+}
+
 export interface IProcessService {
 
 	readonly _serviceBrand: undefined;
@@ -48,4 +66,6 @@ export interface IProcessService {
 	getSystemStatus(): Promise<string>;
 	getSystemInfo(): Promise<SystemInfo>;
 	getPerformanceInfo(): Promise<PerformanceInfo>;
+	runCommand(request: IProcessCommandRequest): Promise<IProcessCommandResult>;
+	cancelCommand(id: string): Promise<void>;
 }
