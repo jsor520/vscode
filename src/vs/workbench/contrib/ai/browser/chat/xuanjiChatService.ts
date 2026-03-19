@@ -54,6 +54,9 @@ export class XuanjiChatService extends Disposable {
 	) {
 		super();
 		this._toolExecutor = new XuanjiToolExecutor(this._aiService, toolRegistry);
+		if (this._agentController) {
+			this._register(this._agentController.onDidRequestStop(() => this.stopGeneration()));
+		}
 	}
 
 	get model(): XuanjiChatModel {
@@ -125,6 +128,14 @@ export class XuanjiChatService extends Disposable {
 		this._currentCancellationTokenSource = undefined;
 		this._agentController?.stopTask();
 		this._model.finishGeneration();
+	}
+
+	pauseAgentTask(): void {
+		this._agentController?.pauseTask();
+	}
+
+	resumeAgentTask(): void {
+		this._agentController?.resumeTask();
 	}
 
 	clearHistory(): void {
@@ -223,6 +234,7 @@ export class XuanjiChatService extends Disposable {
 		);
 		const options = this._createChatOptions();
 		const toolCallLimit = this._configurationService.getValue<number>(XuanjiAiSettings.ToolMaxCalls) || 25;
+		const agentController = this._agentController;
 
 		await this._toolExecutor.executeConversation(
 			conversation,
@@ -247,11 +259,12 @@ export class XuanjiChatService extends Disposable {
 			cancellationTokenSource.token,
 			{
 				toolCallLimit,
-				createExecutionContext: mode === 'chat' || !this._agentController
+				waitIfPaused: agentController ? token => agentController.waitWhilePaused(token) : undefined,
+				createExecutionContext: mode === 'chat' || !agentController
 					? undefined
 					: () => ({
 						mode,
-						reviewHandler: this._agentController,
+						reviewHandler: agentController,
 					}),
 			},
 		);
@@ -261,6 +274,7 @@ export class XuanjiChatService extends Disposable {
 		const conversation = this._agentPlanner.createExecutionConversation(await this._buildSystemMessages(), draft);
 		const options = this._createChatOptions();
 		const toolCallLimit = this._configurationService.getValue<number>(XuanjiAiSettings.ToolMaxCalls) || 25;
+		const agentController = this._agentController;
 
 		await this._toolExecutor.executeConversation(
 			conversation,
@@ -285,9 +299,10 @@ export class XuanjiChatService extends Disposable {
 			cancellationTokenSource.token,
 			{
 				toolCallLimit,
-				createExecutionContext: this._agentController ? () => ({
+				waitIfPaused: agentController ? token => agentController.waitWhilePaused(token) : undefined,
+				createExecutionContext: agentController ? () => ({
 					mode: 'agent',
-					reviewHandler: this._agentController,
+					reviewHandler: agentController,
 				}) : undefined,
 			},
 		);

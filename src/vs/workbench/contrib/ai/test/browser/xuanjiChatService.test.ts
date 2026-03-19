@@ -4,13 +4,21 @@
  *--------------------------------------------------------------------------------------------*/
 
 import assert from 'assert';
+import { VSBuffer } from '../../../../../base/common/buffer.js';
 import { CancellationToken } from '../../../../../base/common/cancellation.js';
+import { URI } from '../../../../../base/common/uri.js';
 import { XuanjiAiSettings } from '../../../../../platform/ai/common/aiSettings.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
+import { ILanguageService } from '../../../../../editor/common/languages/language.js';
 import { TestConfigurationService } from '../../../../../platform/configuration/test/common/testConfigurationService.js';
 import { IAIProvider, IAIService, IChatChunk, IChatMessage, IChatOptions } from '../../../../../platform/ai/common/aiService.js';
+import { IFileService } from '../../../../../platform/files/common/files.js';
+import { ILogService } from '../../../../../platform/log/common/log.js';
+import { IWorkspaceContextService } from '../../../../../platform/workspace/common/workspace.js';
+import { XuanjiAgentController } from '../../browser/agent/agentController.js';
 import { ToolRegistry } from '../../common/toolRegistry.js';
 import { XuanjiChatService } from '../../browser/chat/xuanjiChatService.js';
+import { IEditorService } from '../../../../services/editor/common/editorService.js';
 
 class StubAIService implements IAIService {
 	declare readonly _serviceBrand: undefined;
@@ -61,6 +69,42 @@ class StubAIService implements IAIService {
 
 suite('XuanjiChatService', () => {
 	const store = ensureNoDisposablesAreLeakedInTestSuite();
+
+	function createAgentController(): XuanjiAgentController {
+		const fileService = {
+			createFolder: async () => undefined,
+			writeFile: async () => undefined,
+			readFile: async () => ({ value: VSBuffer.fromString('') }),
+			exists: async () => true,
+			resolve: async () => ({ children: [] }),
+		};
+
+		const workspaceFolder = { uri: URI.file('/workspace'), name: 'workspace' };
+		const workspaceService = {
+			getWorkspace: () => ({ folders: [workspaceFolder] }),
+			getWorkspaceFolder: () => workspaceFolder,
+		};
+
+		const editorService = {
+			openEditor: async () => undefined,
+		};
+
+		const languageService = {
+			guessLanguageIdByFilepathOrFirstLine: () => 'typescript',
+		};
+
+		const logService = {
+			error: () => undefined,
+		};
+
+		return store.add(new XuanjiAgentController(
+			fileService as unknown as IFileService,
+			workspaceService as unknown as IWorkspaceContextService,
+			editorService as unknown as IEditorService,
+			languageService as unknown as ILanguageService,
+			logService as unknown as ILogService,
+		));
+	}
 
 	test('executes tool calls and resumes the assistant response', async () => {
 		const aiService = new StubAIService([
@@ -319,5 +363,57 @@ suite('XuanjiChatService', () => {
 				{ role: 'assistant', kind: 'message', label: undefined, content: 'Execution complete.' },
 			],
 		);
+	});
+
+	test('pauses agent execution and resumes from the same task', async () => {
+		const aiService = new StubAIService([
+			[
+				{ type: 'tool_use', content: '', toolCallId: 'call_read_pause', toolName: 'read_file', toolInput: { path: 'src/index.ts' } },
+				{ type: 'done', content: '' },
+			],
+			[
+				{ type: 'text', content: 'Finished after resume.' },
+				{ type: 'done', content: '' },
+			],
+		]);
+		const toolRegistry = store.add(new ToolRegistry());
+		let releaseTool: (() => void) | undefined;
+		store.add(toolRegistry.registerTool({
+			name: 'read_file',
+			description: 'Read a file',
+			inputSchema: { type: 'object' },
+			execute: async () => {
+				await new Promise<void>(resolve => {
+					releaseTool = resolve;
+				});
+				return { content: 'Loaded src/index.ts' };
+			},
+		}));
+		const agentController = createAgentController();
+		const service = store.add(new XuanjiChatService(
+			aiService,
+			toolRegistry,
+			new TestConfigurationService({ [XuanjiAiSettings.ChatMode]: 'agent' }),
+			undefined,
+			agentController,
+		));
+
+		const sendPromise = service.sendMessage('Inspect and continue');
+		await new Promise(resolve => setTimeout(resolve, 0));
+
+		service.pauseAgentTask();
+		releaseTool?.();
+		await new Promise(resolve => setTimeout(resolve, 0));
+
+		assert.strictEqual(service.agentState?.isPaused, true);
+		assert.strictEqual(service.model.messages.some(message => message.kind === 'tool_result' && message.content === 'Loaded src/index.ts'), true);
+		assert.strictEqual(service.model.messages.some(message => message.kind === 'message' && message.content === 'Finished after resume.'), false);
+
+		service.resumeAgentTask();
+		await sendPromise;
+
+		assert.strictEqual(service.agentState?.isPaused, false);
+		assert.strictEqual(service.agentState?.status, 'completed');
+		assert.strictEqual(service.model.messages.some(message => message.kind === 'message' && message.content === 'Finished after resume.'), true);
 	});
 });

@@ -5,7 +5,7 @@
 
 import assert from 'assert';
 import { VSBuffer } from '../../../../../base/common/buffer.js';
-import { CancellationToken } from '../../../../../base/common/cancellation.js';
+import { CancellationToken, CancellationTokenSource } from '../../../../../base/common/cancellation.js';
 import { URI } from '../../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { ILanguageService } from '../../../../../editor/common/languages/language.js';
@@ -146,5 +146,28 @@ suite('XuanjiAgentController', () => {
 		assert.strictEqual(fileContents.get(resource.toString()), 'original value\n');
 		assert.strictEqual(controller.state?.files.find(file => file.id === 'review_3')?.status, 'rolled_back');
 		assert.strictEqual(writes.some(entry => entry.resource.toString() === resource.toString() && entry.content === 'original value\n'), true);
+	});
+
+	test('waits while paused and continues after resume', async () => {
+		const { controller } = createController();
+		controller.beginTask('agent', 'Pause the task');
+		controller.pauseTask();
+
+		const tokenSource = new CancellationTokenSource();
+		let resumed = false;
+		const waitPromise = controller.waitWhilePaused(tokenSource.token).then(() => {
+			resumed = true;
+		});
+		await new Promise(resolve => setTimeout(resolve, 0));
+
+		assert.strictEqual(controller.state?.isPaused, true);
+		assert.strictEqual(resumed, false);
+
+		controller.resumeTask();
+		await waitPromise;
+
+		assert.strictEqual(controller.state?.isPaused, false);
+		assert.strictEqual(resumed, true);
+		tokenSource.dispose();
 	});
 });

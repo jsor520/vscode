@@ -188,13 +188,38 @@ export class XuanjiChatWidget extends Disposable {
 
 		const header = document.createElement('div');
 		header.className = 'xuanji-chat-agent-header';
-		header.textContent = `${state.mode === 'plan' ? 'Plan Agent' : 'Agent'} · ${this._formatAgentStatus(state.status)}`;
+		header.textContent = `${state.mode === 'plan' ? 'Plan Agent' : 'Agent'} · ${this._formatAgentStatus(state)}`;
 		this._agentStatusContainer.appendChild(header);
 
 		const task = document.createElement('div');
 		task.className = 'xuanji-chat-agent-task';
 		task.textContent = state.task;
 		this._agentStatusContainer.appendChild(task);
+
+		const controls = document.createElement('div');
+		controls.className = 'xuanji-chat-agent-controls';
+
+		const pauseButton = document.createElement('button');
+		pauseButton.className = 'xuanji-chat-plan-btn';
+		pauseButton.textContent = state.isPaused ? 'Resume' : 'Pause';
+		pauseButton.disabled = state.status === 'completed' || state.status === 'stopped' || state.status === 'error';
+		pauseButton.addEventListener('click', () => {
+			if (state.isPaused) {
+				this._chatService.resumeAgentTask();
+			} else {
+				this._chatService.pauseAgentTask();
+			}
+		});
+		controls.appendChild(pauseButton);
+
+		const stopButton = document.createElement('button');
+		stopButton.className = 'xuanji-chat-plan-btn';
+		stopButton.textContent = 'Stop';
+		stopButton.disabled = state.status === 'completed' || state.status === 'stopped' || state.status === 'error';
+		stopButton.addEventListener('click', () => this._chatService.stopGeneration());
+		controls.appendChild(stopButton);
+
+		this._agentStatusContainer.appendChild(controls);
 
 		if (state.steps.length) {
 			const steps = document.createElement('div');
@@ -256,7 +281,12 @@ export class XuanjiChatWidget extends Disposable {
 		}
 	}
 
-	private _formatAgentStatus(status: IXuanjiAgentTaskState['status']): string {
+	private _formatAgentStatus(state: IXuanjiAgentTaskState): string {
+		if (state.status !== 'error' && state.status !== 'stopped' && state.status !== 'completed' && state.isPaused) {
+			return 'Paused';
+		}
+
+		const status = state.status;
 		switch (status) {
 			case 'running':
 				return 'Running';

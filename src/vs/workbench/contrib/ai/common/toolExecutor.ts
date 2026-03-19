@@ -31,6 +31,7 @@ export interface IToolExecutorRunResult {
 export interface IXuanjiToolExecutionOptions {
 	readonly toolCallLimit?: number;
 	readonly createExecutionContext?: (toolCall: IChatToolCall) => Partial<IToolExecutionContext> | undefined;
+	readonly waitIfPaused?: (token: CancellationToken) => Promise<void>;
 }
 
 export class XuanjiToolExecutor {
@@ -59,11 +60,17 @@ export class XuanjiToolExecutor {
 		let toolCallCount = 0;
 
 		while (!token.isCancellationRequested) {
+			await executionOptions.waitIfPaused?.(token);
+			if (token.isCancellationRequested) {
+				break;
+			}
+
 			let assistantText = '';
 			const assistantToolCalls: IChatToolCall[] = [];
 			let sawError = false;
 
 			for await (const chunk of this._aiService.chat(conversation, requestOptions, token)) {
+				await executionOptions.waitIfPaused?.(token);
 				if (token.isCancellationRequested) {
 					break;
 				}
@@ -112,6 +119,11 @@ export class XuanjiToolExecutor {
 			}
 
 			for (const toolCall of assistantToolCalls) {
+				await executionOptions.waitIfPaused?.(token);
+				if (token.isCancellationRequested) {
+					break;
+				}
+
 				const result = await this._invokeTool(
 					toolCall,
 					token,

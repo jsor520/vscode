@@ -57,6 +57,7 @@ export interface IXuanjiAgentTaskState {
 	readonly mode: XuanjiChatMode;
 	readonly task: string;
 	readonly status: XuanjiAgentTaskStatus;
+	readonly isPaused: boolean;
 	readonly steps: readonly IXuanjiAgentStep[];
 	readonly files: readonly IXuanjiAgentFileChange[];
 	readonly checkpoints: readonly IXuanjiAgentCheckpointEntry[];
@@ -75,6 +76,7 @@ export const IXuanjiAgentService = createDecorator<IXuanjiAgentService>('xuanjiA
 export interface IXuanjiAgentService extends IAgentFileReviewHandler {
 	readonly _serviceBrand: undefined;
 	readonly onDidChangeState: Event<IXuanjiAgentTaskState | undefined>;
+	readonly onDidRequestStop: Event<void>;
 	readonly state: IXuanjiAgentTaskState | undefined;
 
 	beginTask(mode: XuanjiChatMode, task: string): void;
@@ -82,11 +84,15 @@ export interface IXuanjiAgentService extends IAgentFileReviewHandler {
 	recordToolResult(toolCall: IChatToolCall, result: IAgentFileReviewResult): void;
 	recordError(message: string): void;
 	completeTask(): void;
+	pauseTask(): void;
+	resumeTask(): void;
+	requestStop(): void;
 	stopTask(): void;
 	openPendingReview(id: string): Promise<void>;
 	acceptPendingReview(id: string): Promise<void>;
 	rejectPendingReview(id: string, message?: string): void;
 	rollbackToCheckpoint(id: string): Promise<void>;
+	waitWhilePaused(token: CancellationToken): Promise<void>;
 }
 
 export class XuanjiAgentController extends Disposable implements IXuanjiAgentService {
@@ -94,10 +100,13 @@ export class XuanjiAgentController extends Disposable implements IXuanjiAgentSer
 	declare readonly _serviceBrand: undefined;
 	private readonly _checkpointService: XuanjiCheckpointService;
 	private readonly _onDidChangeState = this._register(new Emitter<IXuanjiAgentTaskState | undefined>());
+	private readonly _onDidRequestStop = this._register(new Emitter<void>());
 	readonly onDidChangeState: Event<IXuanjiAgentTaskState | undefined> = this._onDidChangeState.event;
+	readonly onDidRequestStop: Event<void> = this._onDidRequestStop.event;
 
 	private _state: IXuanjiAgentTaskState | undefined;
 	private _pendingReviewSession: IPendingReviewSession | undefined;
+	private _pauseBarrier: { promise: Promise<void>; resolve(): void } | undefined;
 
 	constructor(
 		@IFileService private readonly _fileService: IFileService,
@@ -119,6 +128,7 @@ export class XuanjiAgentController extends Disposable implements IXuanjiAgentSer
 			mode,
 			task,
 			status: 'running',
+			isPaused: false,
 			steps: [],
 			files: [],
 			checkpoints: [],
@@ -158,6 +168,7 @@ export class XuanjiAgentController extends Disposable implements IXuanjiAgentSer
 		this._setState({
 			...this._state,
 			status: this._state.pendingReview ? 'waiting_review' : (result.isError ? 'error' : 'running'),
+			isPaused: result.isError ? false : this._state.isPaused,
 			errorMessage: result.isError ? result.content : this._state.errorMessage,
 			steps,
 		});
@@ -171,6 +182,7 @@ export class XuanjiAgentController extends Disposable implements IXuanjiAgentSer
 		this._setState({
 			...this._state,
 			status: 'error',
+			isPaused: false,
 			errorMessage: message,
 		});
 	}
@@ -183,7 +195,43 @@ export class XuanjiAgentController extends Disposable implements IXuanjiAgentSer
 		this._setState({
 			...this._state,
 			status: this._state.pendingReview ? 'waiting_review' : 'completed',
+			isPaused: false,
 		});
+	}
+
+	pauseTask(): void {
+		if (!this._state || this._state.isPaused || this._state.status === 'completed' || this._state.status === 'stopped' || this._state.status === 'error') {
+			return;
+		}
+
+		let resolveBarrier!: () => void;
+		this._pauseBarrier = {
+			promise: new Promise<void>(resolve => {
+				resolveBarrier = resolve;
+			}),
+			resolve: resolveBarrier,
+		};
+		this._setState({
+			...this._state,
+			isPaused: true,
+		});
+	}
+
+	resumeTask(): void {
+		if (!this._state?.isPaused) {
+			return;
+		}
+
+		this._pauseBarrier?.resolve();
+		this._pauseBarrier = undefined;
+		this._setState({
+			...this._state,
+			isPaused: false,
+		});
+	}
+
+	requestStop(): void {
+		this._onDidRequestStop.fire();
 	}
 
 	stopTask(): void {
@@ -199,10 +247,13 @@ export class XuanjiAgentController extends Disposable implements IXuanjiAgentSer
 			this._pendingReviewSession.cancellationListener.dispose();
 			this._pendingReviewSession = undefined;
 		}
+		this._pauseBarrier?.resolve();
+		this._pauseBarrier = undefined;
 
 		this._setState({
 			...this._state,
 			status: 'stopped',
+			isPaused: false,
 			pendingReview: undefined,
 		});
 	}
@@ -366,6 +417,22 @@ export class XuanjiAgentController extends Disposable implements IXuanjiAgentSer
 			this._setState({
 				...this._state,
 				errorMessage: message,
+			});
+		}
+	}
+
+	async waitWhilePaused(token: CancellationToken): Promise<void> {
+		while (this._state?.isPaused && this._pauseBarrier && !token.isCancellationRequested) {
+			const barrier = this._pauseBarrier.promise;
+			await new Promise<void>(resolve => {
+				const cancellationListener = token.onCancellationRequested(() => {
+					cancellationListener.dispose();
+					resolve();
+				});
+				void barrier.finally(() => {
+					cancellationListener.dispose();
+					resolve();
+				});
 			});
 		}
 	}

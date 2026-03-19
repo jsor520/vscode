@@ -32,7 +32,7 @@ export class XuanjiAgentWidget extends Disposable {
 
 		const header = document.createElement('div');
 		header.className = 'xuanji-agent-panel-header';
-		header.textContent = `${state.mode === 'plan' ? localize('xuanjiAgent.planMode', 'Plan Agent') : localize('xuanjiAgent.agentMode', 'Agent')} · ${this._formatStatus(state.status)}`;
+		header.textContent = `${state.mode === 'plan' ? localize('xuanjiAgent.planMode', 'Plan Agent') : localize('xuanjiAgent.agentMode', 'Agent')} · ${this._formatStatus(state)}`;
 		this._container.appendChild(header);
 
 		const task = document.createElement('div');
@@ -43,11 +43,24 @@ export class XuanjiAgentWidget extends Disposable {
 		const actions = document.createElement('div');
 		actions.className = 'xuanji-agent-panel-actions';
 
+		const pauseButton = document.createElement('button');
+		pauseButton.className = 'xuanji-agent-btn';
+		pauseButton.textContent = state.isPaused ? localize('xuanjiAgent.resume', 'Resume') : localize('xuanjiAgent.pause', 'Pause');
+		pauseButton.disabled = state.status === 'completed' || state.status === 'stopped' || state.status === 'error';
+		pauseButton.addEventListener('click', () => {
+			if (state.isPaused) {
+				this._agentService.resumeTask();
+			} else {
+				this._agentService.pauseTask();
+			}
+		});
+		actions.appendChild(pauseButton);
+
 		const stopButton = document.createElement('button');
 		stopButton.className = 'xuanji-agent-btn';
 		stopButton.textContent = localize('xuanjiAgent.stop', 'Stop');
-		stopButton.disabled = state.status !== 'running' && state.status !== 'waiting_review';
-		stopButton.addEventListener('click', () => this._agentService.stopTask());
+		stopButton.disabled = state.status === 'completed' || state.status === 'stopped' || state.status === 'error';
+		stopButton.addEventListener('click', () => this._agentService.requestStop());
 		actions.appendChild(stopButton);
 
 		const rollbackLatestButton = document.createElement('button');
@@ -213,7 +226,12 @@ export class XuanjiAgentWidget extends Disposable {
 		this._container.appendChild(empty);
 	}
 
-	private _formatStatus(status: IXuanjiAgentTaskState['status']): string {
+	private _formatStatus(state: IXuanjiAgentTaskState): string {
+		if (state.status !== 'error' && state.status !== 'stopped' && state.status !== 'completed' && state.isPaused) {
+			return localize('xuanjiAgent.statusPaused', 'Paused');
+		}
+
+		const status = state.status;
 		switch (status) {
 			case 'running':
 				return localize('xuanjiAgent.statusRunning', 'Running');
