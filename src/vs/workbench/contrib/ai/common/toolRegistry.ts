@@ -7,7 +7,9 @@ import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { Disposable, IDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { ITool } from '../../../../platform/ai/common/aiService.js';
+import { XuanjiChatMode } from '../../../../platform/ai/common/aiSettings.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
+import { IAgentFileReviewHandler } from './agentReview.js';
 
 export const IToolRegistry = createDecorator<IToolRegistry>('xuanjiToolRegistry');
 
@@ -22,6 +24,8 @@ export interface IToolProgressUpdate {
 }
 
 export interface IToolExecutionContext {
+	readonly mode?: XuanjiChatMode;
+	readonly reviewHandler?: IAgentFileReviewHandler;
 	reportProgress(update: IToolProgressUpdate): void;
 }
 

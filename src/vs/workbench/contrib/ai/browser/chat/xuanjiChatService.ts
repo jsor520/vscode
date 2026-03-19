@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { CancellationTokenSource } from '../../../../../base/common/cancellation.js';
+import { Event } from '../../../../../base/common/event.js';
 import { Disposable } from '../../../../../base/common/lifecycle.js';
 import { IAIService, IChatMessage, IChatOptions, IChatToolCall, IContextAttachment } from '../../../../../platform/ai/common/aiService.js';
 import { IConfigurationService } from '../../../../../platform/configuration/common/configuration.js';
@@ -11,6 +12,7 @@ import { XuanjiAiSettings, XuanjiChatMode } from '../../../../../platform/ai/com
 import { IXuanjiPlanDraft, XuanjiAgentPlanner } from '../../common/agentPlanner.js';
 import { IToolInvocationResult, IToolProgressUpdate, IToolRegistry } from '../../common/toolRegistry.js';
 import { XuanjiToolExecutor } from '../../common/toolExecutor.js';
+import { IXuanjiAgentTaskState, XuanjiAgentController } from '../agent/agentController.js';
 import { XuanjiChatModel } from './xuanjiChatModel.js';
 
 function getErrorMessage(error: unknown): string {
@@ -48,6 +50,7 @@ export class XuanjiChatService extends Disposable {
 		toolRegistry: IToolRegistry,
 		private readonly _configurationService: IConfigurationService,
 		private readonly _rulesProvider?: { collectRules(): Promise<string> },
+		private readonly _agentController?: XuanjiAgentController,
 	) {
 		super();
 		this._toolExecutor = new XuanjiToolExecutor(this._aiService, toolRegistry);
@@ -55,6 +58,14 @@ export class XuanjiChatService extends Disposable {
 
 	get model(): XuanjiChatModel {
 		return this._model;
+	}
+
+	get agentState(): IXuanjiAgentTaskState | undefined {
+		return this._agentController?.state;
+	}
+
+	get onDidChangeAgentState(): Event<IXuanjiAgentTaskState | undefined> {
+		return this._agentController?.onDidChangeState ?? Event.None;
 	}
 
 	async sendMessage(content: string, attachments?: IContextAttachment[]): Promise<void> {
@@ -85,9 +96,16 @@ export class XuanjiChatService extends Disposable {
 			} else {
 				this._pendingPlanDraft = undefined;
 				this._model.setPendingPlan(undefined);
+				if (mode !== 'chat') {
+					this._agentController?.beginTask(mode, content);
+				}
 				await this._runChatConversation(mode, cancellationTokenSource);
+				if (mode !== 'chat') {
+					this._agentController?.completeTask();
+				}
 			}
 		} catch (error) {
+			this._agentController?.recordError(getErrorMessage(error));
 			this._model.addError(getErrorMessage(error));
 		} finally {
 			this._model.finishGeneration();
@@ -105,6 +123,7 @@ export class XuanjiChatService extends Disposable {
 
 		this._currentCancellationTokenSource.cancel();
 		this._currentCancellationTokenSource = undefined;
+		this._agentController?.stopTask();
 		this._model.finishGeneration();
 	}
 
@@ -128,8 +147,11 @@ export class XuanjiChatService extends Disposable {
 			const approvedDraft = this._pendingPlanDraft;
 			this._pendingPlanDraft = undefined;
 			this._model.setPendingPlan(undefined);
+			this._agentController?.beginTask('plan', approvedDraft.task);
 			await this._runApprovedPlan(approvedDraft, cancellationTokenSource);
+			this._agentController?.completeTask();
 		} catch (error) {
+			this._agentController?.recordError(getErrorMessage(error));
 			this._model.addError(getErrorMessage(error));
 		} finally {
 			this._model.finishGeneration();
@@ -161,6 +183,18 @@ export class XuanjiChatService extends Disposable {
 			}
 			cancellationTokenSource.dispose();
 		}
+	}
+
+	async acceptAgentReview(reviewId: string): Promise<void> {
+		await this._agentController?.acceptPendingReview(reviewId);
+	}
+
+	rejectAgentReview(reviewId: string): void {
+		this._agentController?.rejectPendingReview(reviewId);
+	}
+
+	async openAgentReview(reviewId: string): Promise<void> {
+		await this._agentController?.openPendingReview(reviewId);
 	}
 
 	private async _buildSystemMessages(): Promise<IChatMessage[]> {
@@ -196,13 +230,30 @@ export class XuanjiChatService extends Disposable {
 			{
 				onText: text => this._model.appendToLastAssistant(text),
 				onThinking: text => this._model.appendThinking(text),
-				onToolUse: toolCall => this._model.addToolUse(formatToolLabel(toolCall.name), formatToolPayload(toolCall.input), toolCall.id),
+				onToolUse: toolCall => {
+					this._model.addToolUse(formatToolLabel(toolCall.name), formatToolPayload(toolCall.input), toolCall.id);
+					this._agentController?.recordToolUse(toolCall);
+				},
 				onToolProgress: (toolCall, result) => this._handleToolProgress(toolCall, result),
-				onToolResult: (toolCall, result) => this._handleToolResult(toolCall, result),
-				onError: message => this._model.addError(message),
+				onToolResult: (toolCall, result) => {
+					this._handleToolResult(toolCall, result);
+					this._agentController?.recordToolResult(toolCall, result);
+				},
+				onError: message => {
+					this._agentController?.recordError(message);
+					this._model.addError(message);
+				},
 			},
 			cancellationTokenSource.token,
-			toolCallLimit,
+			{
+				toolCallLimit,
+				createExecutionContext: mode === 'chat' || !this._agentController
+					? undefined
+					: () => ({
+						mode,
+						reviewHandler: this._agentController,
+					}),
+			},
 		);
 	}
 
@@ -217,13 +268,28 @@ export class XuanjiChatService extends Disposable {
 			{
 				onText: text => this._model.appendToLastAssistant(text),
 				onThinking: text => this._model.appendThinking(text),
-				onToolUse: toolCall => this._model.addToolUse(formatToolLabel(toolCall.name), formatToolPayload(toolCall.input), toolCall.id),
+				onToolUse: toolCall => {
+					this._model.addToolUse(formatToolLabel(toolCall.name), formatToolPayload(toolCall.input), toolCall.id);
+					this._agentController?.recordToolUse(toolCall);
+				},
 				onToolProgress: (toolCall, result) => this._handleToolProgress(toolCall, result),
-				onToolResult: (toolCall, result) => this._handleToolResult(toolCall, result),
-				onError: message => this._model.addError(message),
+				onToolResult: (toolCall, result) => {
+					this._handleToolResult(toolCall, result);
+					this._agentController?.recordToolResult(toolCall, result);
+				},
+				onError: message => {
+					this._agentController?.recordError(message);
+					this._model.addError(message);
+				},
 			},
 			cancellationTokenSource.token,
-			toolCallLimit,
+			{
+				toolCallLimit,
+				createExecutionContext: this._agentController ? () => ({
+					mode: 'agent',
+					reviewHandler: this._agentController,
+				}) : undefined,
+			},
 		);
 	}
 

@@ -23,6 +23,7 @@ import { XuanjiChatWidget } from './xuanjiChatWidget.js';
 import { XuanjiChatService } from './xuanjiChatService.js';
 import { XuanjiRulesEngine } from '../../common/rules/rulesEngine.js';
 import { IToolRegistry } from '../../common/toolRegistry.js';
+import { XuanjiAgentController } from '../agent/agentController.js';
 
 export const XUANJI_CHAT_VIEW_ID = 'workbench.view.xuanjiChat';
 export const XUANJI_CHAT_CONTAINER_ID = 'workbench.panel.xuanjiChat';
@@ -58,12 +59,14 @@ export class XuanjiChatViewPane extends ViewPane {
 		super.renderBody(container);
 
 		const rulesEngine = new XuanjiRulesEngine(this._fileService, this._workspaceService, this._logService);
+		const agentController = this._register(this.instantiationService.createInstance(XuanjiAgentController));
 
 		this._chatService = this._register(new XuanjiChatService(
 			this._aiService,
 			this._toolRegistry,
 			this.configurationService,
 			rulesEngine,
+			agentController,
 		));
 
 		this._widget = this._register(new XuanjiChatWidget(

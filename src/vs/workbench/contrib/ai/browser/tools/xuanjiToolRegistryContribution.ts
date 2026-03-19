@@ -10,6 +10,7 @@ import * as paths from '../../../../../base/common/path.js';
 import { basename, dirname, relativePath } from '../../../../../base/common/resources.js';
 import Severity from '../../../../../base/common/severity.js';
 import { URI } from '../../../../../base/common/uri.js';
+import { generateUuid } from '../../../../../base/common/uuid.js';
 import { localize } from '../../../../../nls.js';
 import { IQuickInputService } from '../../../../../platform/quickinput/common/quickInput.js';
 import { IFileService, IFileStat } from '../../../../../platform/files/common/files.js';
@@ -283,7 +284,7 @@ export class XuanjiToolRegistryContribution implements IWorkbenchContribution {
 				},
 				required: ['path', 'content'],
 			},
-			execute: async rawInput => {
+			execute: async (rawInput, token, context) => {
 				const input = rawInput as IWriteFileInput;
 				if (!input.path) {
 					throw new Error('write_file requires a path.');
@@ -293,6 +294,21 @@ export class XuanjiToolRegistryContribution implements IWorkbenchContribution {
 				const exists = await this._fileService.exists(resource);
 				if (exists && !input.overwrite) {
 					throw new Error(`File "${this._formatResource(resource)}" already exists. Pass overwrite=true to replace it.`);
+				}
+
+				if (context?.reviewHandler && context.mode !== 'chat') {
+					return context.reviewHandler.reviewFileChange({
+						id: generateUuid(),
+						toolName: 'write_file',
+						resource,
+						originalContent: exists ? (await this._fileService.readFile(resource, undefined, token)).value.toString() : '',
+						modifiedContent: input.content,
+						label: this._formatResource(resource),
+						summary: exists
+							? `Proposed overwrite for ${this._formatResource(resource)}.`
+							: `Proposed new file ${this._formatResource(resource)}.`,
+						isNewFile: !exists,
+					}, token);
 				}
 
 				const confirmed = await this._confirmFileMutation(
@@ -333,7 +349,7 @@ export class XuanjiToolRegistryContribution implements IWorkbenchContribution {
 				},
 				required: ['path', 'oldText', 'newText'],
 			},
-			execute: async (rawInput, token) => {
+			execute: async (rawInput, token, context) => {
 				const input = rawInput as IEditFileInput;
 				if (!input.path) {
 					throw new Error('edit_file requires a path.');
@@ -346,6 +362,18 @@ export class XuanjiToolRegistryContribution implements IWorkbenchContribution {
 
 				const original = (await this._fileService.readFile(resource, undefined, token)).value.toString();
 				const result = applyTextEdit(original, input.oldText, input.newText, !!input.replaceAll);
+				if (context?.reviewHandler && context.mode !== 'chat') {
+					return context.reviewHandler.reviewFileChange({
+						id: generateUuid(),
+						toolName: 'edit_file',
+						resource,
+						originalContent: original,
+						modifiedContent: result.content,
+						label: this._formatResource(resource),
+						summary: `Proposed ${result.replacements} replacement(s) in ${this._formatResource(resource)}.`,
+						isNewFile: false,
+					}, token);
+				}
 				const confirmed = await this._confirmFileMutation(
 					localize('xuanjiTools.editFile.title', 'Allow AI to edit a file?'),
 					localize('xuanjiTools.editFile.message', 'Edit {0}?', this._formatResource(resource)),
