@@ -42,6 +42,11 @@ export class XuanjiCheckpointService {
 		return checkpointUri;
 	}
 
+	async restoreCheckpoint(fileUri: URI, checkpointUri: URI): Promise<void> {
+		const checkpoint = await this._fileService.readFile(checkpointUri);
+		await this._fileService.writeFile(fileUri, checkpoint.value);
+	}
+
 	private async _cleanupOldCheckpoints(directory: URI): Promise<void> {
 		try {
 			const stat = await this._fileService.resolve(directory);

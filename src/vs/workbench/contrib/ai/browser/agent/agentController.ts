@@ -43,7 +43,7 @@ export interface IXuanjiAgentFileChange {
 	readonly resource: URI;
 	readonly label: string;
 	readonly summary: string;
-	readonly status: 'pending' | 'accepted' | 'rejected';
+	readonly status: 'pending' | 'accepted' | 'rejected' | 'rolled_back';
 }
 
 export interface IXuanjiAgentCheckpointEntry {
@@ -86,6 +86,7 @@ export interface IXuanjiAgentService extends IAgentFileReviewHandler {
 	openPendingReview(id: string): Promise<void>;
 	acceptPendingReview(id: string): Promise<void>;
 	rejectPendingReview(id: string, message?: string): void;
+	rollbackToCheckpoint(id: string): Promise<void>;
 }
 
 export class XuanjiAgentController extends Disposable implements IXuanjiAgentService {
@@ -334,6 +335,39 @@ export class XuanjiAgentController extends Disposable implements IXuanjiAgentSer
 			}),
 			pendingReview: undefined,
 		} : undefined);
+	}
+
+	async rollbackToCheckpoint(id: string): Promise<void> {
+		if (!this._state) {
+			return;
+		}
+
+		const checkpoint = this._state.checkpoints.find(entry => entry.id === id && entry.checkpointUri);
+		if (!checkpoint?.checkpointUri) {
+			return;
+		}
+
+		try {
+			await this._checkpointService.restoreCheckpoint(checkpoint.resource, checkpoint.checkpointUri);
+			await this._editorService.openEditor({ resource: checkpoint.resource, options: { pinned: true, preserveFocus: true } });
+			this._setState({
+				...this._state,
+				files: this._upsertFileChange(this._state.files, {
+					id: checkpoint.id,
+					resource: checkpoint.resource,
+					label: checkpoint.label,
+					summary: `Rolled back to checkpoint ${basename(checkpoint.checkpointUri)}.`,
+					status: 'rolled_back',
+				}),
+			});
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			this._logService.error('[XuanJi AI] Failed to restore checkpoint.', error);
+			this._setState({
+				...this._state,
+				errorMessage: message,
+			});
+		}
 	}
 
 	private async _openReviewDiff(request: IAgentFileReviewRequest): Promise<void> {

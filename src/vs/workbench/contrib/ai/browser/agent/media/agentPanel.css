@@ -106,10 +106,26 @@
 	color: var(--vscode-errorForeground);
 }
 
+.xuanji-agent-file-row.status-rolled_back .xuanji-agent-file-label {
+	color: var(--vscode-charts-blue, #268bd2);
+}
+
 .xuanji-agent-file-row {
 	display: flex;
 	flex-direction: column;
 	gap: 2px;
+	width: 100%;
+	border: none;
+	background: transparent;
+	text-align: left;
+	cursor: pointer;
+	border-radius: 6px;
+	padding: 6px 8px;
+	margin: 0;
+}
+
+.xuanji-agent-file-row:hover {
+	background: var(--vscode-list-hoverBackground, rgba(128, 128, 128, 0.08));
 }
 
 .xuanji-agent-file-label {
@@ -123,8 +139,14 @@
 }
 
 .xuanji-agent-checkpoint-row {
-	display: block;
-	width: 100%;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+}
+
+.xuanji-agent-link-btn {
+	flex: 1;
 	border: none;
 	background: transparent;
 	color: var(--vscode-textLink-foreground);
@@ -133,8 +155,43 @@
 	cursor: pointer;
 }
 
-.xuanji-agent-checkpoint-row:hover {
+.xuanji-agent-link-btn:hover {
 	text-decoration: underline;
+}
+
+.xuanji-agent-checkpoint-row + .xuanji-agent-checkpoint-row {
+	margin-top: 6px;
+}
+
+.xuanji-agent-checkpoint-row .xuanji-agent-btn {
+	flex-shrink: 0;
+}
+
+.xuanji-agent-checkpoint-row button {
+	font: inherit;
+}
+
+.xuanji-agent-file-row,
+.xuanji-agent-link-btn,
+.xuanji-agent-btn {
+	font-family: inherit;
+}
+
+.xuanji-agent-file-row:focus-visible,
+.xuanji-agent-link-btn:focus-visible,
+.xuanji-agent-btn:focus-visible {
+	outline: 1px solid var(--vscode-focusBorder);
+	outline-offset: 1px;
+}
+
+.xuanji-agent-file-row .xuanji-agent-file-label,
+.xuanji-agent-file-row .xuanji-agent-file-summary {
+	pointer-events: none;
+}
+
+.xuanji-agent-checkpoint-row {
+	width: 100%;
+	padding: 4px 0;
 }
 
 .xuanji-agent-error {

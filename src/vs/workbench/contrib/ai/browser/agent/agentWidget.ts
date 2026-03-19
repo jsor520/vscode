@@ -50,6 +50,18 @@ export class XuanjiAgentWidget extends Disposable {
 		stopButton.addEventListener('click', () => this._agentService.stopTask());
 		actions.appendChild(stopButton);
 
+		const rollbackLatestButton = document.createElement('button');
+		rollbackLatestButton.className = 'xuanji-agent-btn';
+		rollbackLatestButton.textContent = localize('xuanjiAgent.rollbackLatest', 'Rollback Latest');
+		rollbackLatestButton.disabled = state.checkpoints.length === 0;
+		rollbackLatestButton.addEventListener('click', () => {
+			const latestCheckpoint = state.checkpoints.at(-1);
+			if (latestCheckpoint) {
+				void this._agentService.rollbackToCheckpoint(latestCheckpoint.id);
+			}
+		});
+		actions.appendChild(rollbackLatestButton);
+
 		this._container.appendChild(actions);
 
 		if (state.pendingReview) {
@@ -111,8 +123,13 @@ export class XuanjiAgentWidget extends Disposable {
 		if (state.files.length) {
 			const section = this._createSection(localize('xuanjiAgent.modifiedFiles', 'Modified Files'));
 			for (const file of state.files) {
-				const row = document.createElement('div');
+				const row = document.createElement('button');
 				row.className = `xuanji-agent-file-row status-${file.status}`;
+				row.type = 'button';
+				row.title = localize('xuanjiAgent.openFile', 'Open file');
+				row.addEventListener('click', () => {
+					void this._openerService.open(file.resource);
+				});
 
 				const label = document.createElement('div');
 				label.className = 'xuanji-agent-file-label';
@@ -132,14 +149,30 @@ export class XuanjiAgentWidget extends Disposable {
 		if (state.checkpoints.length) {
 			const section = this._createSection(localize('xuanjiAgent.checkpoints', 'Checkpoints'));
 			for (const checkpoint of state.checkpoints) {
-				const row = document.createElement('button');
+				const row = document.createElement('div');
 				row.className = 'xuanji-agent-checkpoint-row';
-				row.textContent = checkpoint.label;
-				row.addEventListener('click', () => {
+
+				const openButton = document.createElement('button');
+				openButton.className = 'xuanji-agent-link-btn';
+				openButton.type = 'button';
+				openButton.textContent = checkpoint.label;
+				openButton.addEventListener('click', () => {
 					if (checkpoint.checkpointUri) {
 						void this._openerService.open(checkpoint.checkpointUri);
 					}
 				});
+				row.appendChild(openButton);
+
+				const rollbackButton = document.createElement('button');
+				rollbackButton.className = 'xuanji-agent-btn';
+				rollbackButton.type = 'button';
+				rollbackButton.textContent = localize('xuanjiAgent.rollback', 'Rollback');
+				rollbackButton.disabled = !checkpoint.checkpointUri;
+				rollbackButton.addEventListener('click', () => {
+					void this._agentService.rollbackToCheckpoint(checkpoint.id);
+				});
+				row.appendChild(rollbackButton);
+
 				section.appendChild(row);
 			}
 			this._container.appendChild(section);
@@ -210,12 +243,14 @@ export class XuanjiAgentWidget extends Disposable {
 		}
 	}
 
-	private _formatFileStatus(status: 'pending' | 'accepted' | 'rejected'): string {
+	private _formatFileStatus(status: 'pending' | 'accepted' | 'rejected' | 'rolled_back'): string {
 		switch (status) {
 			case 'accepted':
 				return localize('xuanjiAgent.fileStatusAccepted', 'Accepted');
 			case 'rejected':
 				return localize('xuanjiAgent.fileStatusRejected', 'Rejected');
+			case 'rolled_back':
+				return localize('xuanjiAgent.fileStatusRolledBack', 'Rolled Back');
 			default:
 				return localize('xuanjiAgent.fileStatusPending', 'Pending');
 		}

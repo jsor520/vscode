@@ -21,12 +21,16 @@ suite('XuanjiAgentController', () => {
 	function createController() {
 		const writes: Array<{ resource: URI; content: string }> = [];
 		const openedEditors: unknown[] = [];
+		const fileContents = new Map<string, string>();
 
 		const fileService = {
 			createFolder: async () => undefined,
 			writeFile: async (resource: URI, buffer: VSBuffer) => {
-				writes.push({ resource, content: buffer.toString() });
+				const content = buffer.toString();
+				writes.push({ resource, content });
+				fileContents.set(resource.toString(), content);
 			},
+			readFile: async (resource: URI) => ({ value: VSBuffer.fromString(fileContents.get(resource.toString()) || '') }),
 			exists: async () => true,
 			resolve: async () => ({ children: [] }),
 		};
@@ -60,7 +64,7 @@ suite('XuanjiAgentController', () => {
 			logService as unknown as ILogService,
 		));
 
-		return { controller, writes, openedEditors };
+		return { controller, writes, openedEditors, fileContents };
 	}
 
 	test('opens a review diff and applies accepted changes to disk', async () => {
@@ -115,5 +119,32 @@ suite('XuanjiAgentController', () => {
 		assert.strictEqual(result.isError, true);
 		assert.strictEqual(result.content, 'The user rejected the proposed change for src/reject.ts.');
 		assert.strictEqual(writes.some(entry => entry.resource.toString() === resource.toString() && entry.content === 'new value\n'), false);
+	});
+
+	test('restores a file from checkpoint history', async () => {
+		const { controller, writes, fileContents } = createController();
+		const resource = URI.file('/workspace/src/rollback.ts');
+		fileContents.set(resource.toString(), 'latest value\n');
+		controller.beginTask('agent', 'Rollback the file');
+
+		const reviewPromise = controller.reviewFileChange({
+			id: 'review_3',
+			toolName: 'edit_file',
+			resource,
+			originalContent: 'original value\n',
+			modifiedContent: 'latest value\n',
+			label: 'src/rollback.ts',
+			summary: 'Update the rollback target.',
+			isNewFile: false,
+		}, CancellationToken.None);
+		await new Promise(resolve => setTimeout(resolve, 0));
+		await controller.acceptPendingReview('review_3');
+		await reviewPromise;
+
+		await controller.rollbackToCheckpoint('review_3');
+
+		assert.strictEqual(fileContents.get(resource.toString()), 'original value\n');
+		assert.strictEqual(controller.state?.files.find(file => file.id === 'review_3')?.status, 'rolled_back');
+		assert.strictEqual(writes.some(entry => entry.resource.toString() === resource.toString() && entry.content === 'original value\n'), true);
 	});
 });
