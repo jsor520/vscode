@@ -7,6 +7,8 @@ import './settings/aiSettingsContribution.js';
 import './settings/media/xuanjiSettings.css';
 import './settings/xuanjiSettingsActions.js';
 import '../../../../editor/contrib/aiCompletions/browser/aiCompletions.contribution.js';
+import './agent/agentActions.js';
+import './agent/media/agentPanel.css';
 import './chat/xuanjiChatActions.js';
 import './inlineEdit/xuanjiInlineEditActions.js';
 
@@ -14,6 +16,7 @@ import { InstantiationType, registerSingleton } from '../../../../platform/insta
 import { IAIService } from '../../../../platform/ai/common/aiService.js';
 import { AICredentialsService, IAICredentialsService } from '../../../../platform/ai/common/aiCredentialsService.js';
 import { BrowserAIServiceImpl } from '../../../../platform/ai/common/aiServiceImpl.js';
+import { IXuanjiAgentService, XuanjiAgentController } from './agent/agentController.js';
 import { ICommandSandboxService } from '../common/commandSandboxService.js';
 import { BrowserCommandSandboxService } from './commandSandboxService.js';
 import { IToolRegistry, ToolRegistry } from '../common/toolRegistry.js';
@@ -25,6 +28,7 @@ registerSingleton(IAICredentialsService, AICredentialsService, InstantiationType
 registerSingleton(IAIService, BrowserAIServiceImpl, InstantiationType.Delayed);
 registerSingleton(IToolRegistry, ToolRegistry, InstantiationType.Delayed);
 registerSingleton(ICommandSandboxService, BrowserCommandSandboxService, InstantiationType.Delayed);
+registerSingleton(IXuanjiAgentService, XuanjiAgentController, InstantiationType.Delayed);
 
 class XuanjiAICredentialsMigrationContribution implements IWorkbenchContribution {
 	static readonly ID = 'workbench.contrib.xuanjiAiCredentialsMigration';

@@ -12,7 +12,7 @@ import { XuanjiAiSettings, XuanjiChatMode } from '../../../../../platform/ai/com
 import { IXuanjiPlanDraft, XuanjiAgentPlanner } from '../../common/agentPlanner.js';
 import { IToolInvocationResult, IToolProgressUpdate, IToolRegistry } from '../../common/toolRegistry.js';
 import { XuanjiToolExecutor } from '../../common/toolExecutor.js';
-import { IXuanjiAgentTaskState, XuanjiAgentController } from '../agent/agentController.js';
+import { IXuanjiAgentService, IXuanjiAgentTaskState } from '../agent/agentController.js';
 import { XuanjiChatModel } from './xuanjiChatModel.js';
 
 function getErrorMessage(error: unknown): string {
@@ -50,7 +50,7 @@ export class XuanjiChatService extends Disposable {
 		toolRegistry: IToolRegistry,
 		private readonly _configurationService: IConfigurationService,
 		private readonly _rulesProvider?: { collectRules(): Promise<string> },
-		private readonly _agentController?: XuanjiAgentController,
+		private readonly _agentController?: IXuanjiAgentService,
 	) {
 		super();
 		this._toolExecutor = new XuanjiToolExecutor(this._aiService, toolRegistry);

@@ -13,6 +13,7 @@ import { IChatToolCall } from '../../../../../platform/ai/common/aiService.js';
 import { XuanjiChatMode } from '../../../../../platform/ai/common/aiSettings.js';
 import { ILanguageService } from '../../../../../editor/common/languages/language.js';
 import { IFileService } from '../../../../../platform/files/common/files.js';
+import { createDecorator } from '../../../../../platform/instantiation/common/instantiation.js';
 import { ILogService } from '../../../../../platform/log/common/log.js';
 import { IWorkspaceContextService } from '../../../../../platform/workspace/common/workspace.js';
 import { IEditorService } from '../../../../services/editor/common/editorService.js';
@@ -37,11 +38,28 @@ export interface IXuanjiPendingFileReview {
 	readonly isNewFile: boolean;
 }
 
+export interface IXuanjiAgentFileChange {
+	readonly id: string;
+	readonly resource: URI;
+	readonly label: string;
+	readonly summary: string;
+	readonly status: 'pending' | 'accepted' | 'rejected';
+}
+
+export interface IXuanjiAgentCheckpointEntry {
+	readonly id: string;
+	readonly resource: URI;
+	readonly label: string;
+	readonly checkpointUri?: URI;
+}
+
 export interface IXuanjiAgentTaskState {
 	readonly mode: XuanjiChatMode;
 	readonly task: string;
 	readonly status: XuanjiAgentTaskStatus;
 	readonly steps: readonly IXuanjiAgentStep[];
+	readonly files: readonly IXuanjiAgentFileChange[];
+	readonly checkpoints: readonly IXuanjiAgentCheckpointEntry[];
 	readonly pendingReview?: IXuanjiPendingFileReview;
 	readonly errorMessage?: string;
 }
@@ -52,8 +70,27 @@ interface IPendingReviewSession {
 	readonly cancellationListener: { dispose(): void };
 }
 
-export class XuanjiAgentController extends Disposable implements IAgentFileReviewHandler {
+export const IXuanjiAgentService = createDecorator<IXuanjiAgentService>('xuanjiAgentService');
 
+export interface IXuanjiAgentService extends IAgentFileReviewHandler {
+	readonly _serviceBrand: undefined;
+	readonly onDidChangeState: Event<IXuanjiAgentTaskState | undefined>;
+	readonly state: IXuanjiAgentTaskState | undefined;
+
+	beginTask(mode: XuanjiChatMode, task: string): void;
+	recordToolUse(toolCall: IChatToolCall): void;
+	recordToolResult(toolCall: IChatToolCall, result: IAgentFileReviewResult): void;
+	recordError(message: string): void;
+	completeTask(): void;
+	stopTask(): void;
+	openPendingReview(id: string): Promise<void>;
+	acceptPendingReview(id: string): Promise<void>;
+	rejectPendingReview(id: string, message?: string): void;
+}
+
+export class XuanjiAgentController extends Disposable implements IXuanjiAgentService {
+
+	declare readonly _serviceBrand: undefined;
 	private readonly _checkpointService: XuanjiCheckpointService;
 	private readonly _onDidChangeState = this._register(new Emitter<IXuanjiAgentTaskState | undefined>());
 	readonly onDidChangeState: Event<IXuanjiAgentTaskState | undefined> = this._onDidChangeState.event;
@@ -82,6 +119,8 @@ export class XuanjiAgentController extends Disposable implements IAgentFileRevie
 			task,
 			status: 'running',
 			steps: [],
+			files: [],
+			checkpoints: [],
 		});
 	}
 
@@ -177,10 +216,23 @@ export class XuanjiAgentController extends Disposable implements IAgentFileRevie
 		}
 
 		try {
+			let checkpointUri: URI | undefined;
 			if (!request.isNewFile) {
-				await this._checkpointService.saveCheckpoint(request.resource, request.originalContent);
+				checkpointUri = await this._checkpointService.saveCheckpoint(request.resource, request.originalContent);
 			}
 			await this._openReviewDiff(request);
+			this._setState({
+				...this._state,
+				checkpoints: checkpointUri ? [
+					...this._state.checkpoints,
+					{
+						id: request.id,
+						resource: request.resource,
+						label: request.label,
+						checkpointUri,
+					},
+				] : this._state.checkpoints,
+			});
 		} catch (error) {
 			this._logService.error('[XuanJi AI] Failed to open agent review diff.', error);
 			return { content: error instanceof Error ? error.message : String(error), isError: true };
@@ -189,6 +241,13 @@ export class XuanjiAgentController extends Disposable implements IAgentFileRevie
 		this._setState({
 			...this._state,
 			status: 'waiting_review',
+			files: this._upsertFileChange(this._state.files, {
+				id: request.id,
+				resource: request.resource,
+				label: request.label,
+				summary: request.summary,
+				status: 'pending',
+			}),
 			pendingReview: {
 				id: request.id,
 				resource: request.resource,
@@ -240,6 +299,13 @@ export class XuanjiAgentController extends Disposable implements IAgentFileRevie
 		this._setState(this._state ? {
 			...this._state,
 			status: 'running',
+			files: this._upsertFileChange(this._state.files, {
+				id: review.request.id,
+				resource: review.request.resource,
+				label: review.request.label,
+				summary: review.request.summary,
+				status: 'accepted',
+			}),
 			pendingReview: undefined,
 		} : undefined);
 	}
@@ -259,6 +325,13 @@ export class XuanjiAgentController extends Disposable implements IAgentFileRevie
 		this._setState(this._state ? {
 			...this._state,
 			status: 'running',
+			files: this._upsertFileChange(this._state.files, {
+				id: review.request.id,
+				resource: review.request.resource,
+				label: review.request.label,
+				summary: review.request.summary,
+				status: 'rejected',
+			}),
 			pendingReview: undefined,
 		} : undefined);
 	}
@@ -318,5 +391,16 @@ export class XuanjiAgentController extends Disposable implements IAgentFileRevie
 	private _setState(state: IXuanjiAgentTaskState | undefined): void {
 		this._state = state;
 		this._onDidChangeState.fire(this._state);
+	}
+
+	private _upsertFileChange(files: readonly IXuanjiAgentFileChange[], next: IXuanjiAgentFileChange): IXuanjiAgentFileChange[] {
+		const existingIndex = files.findIndex(file => file.id === next.id);
+		if (existingIndex === -1) {
+			return [...files, next];
+		}
+
+		const copy = [...files];
+		copy[existingIndex] = next;
+		return copy;
 	}
 }
