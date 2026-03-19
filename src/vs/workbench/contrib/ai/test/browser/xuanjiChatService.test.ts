@@ -150,4 +150,70 @@ suite('XuanjiChatService', () => {
 		);
 		assert.strictEqual(service.model.toChatMessages().length, 1);
 	});
+
+	test('streams tool progress into a single tool result message', async () => {
+		const aiService = new StubAIService([
+			[
+				{ type: 'tool_use', content: '', toolCallId: 'call_cmd_1', toolName: 'run_command', toolInput: { command: 'echo hello' } },
+				{ type: 'done', content: '' },
+			],
+			[
+				{ type: 'text', content: 'Command finished.' },
+				{ type: 'done', content: '' },
+			],
+		]);
+		const toolRegistry = store.add(new ToolRegistry());
+		let releaseCommand: (() => void) | undefined;
+		store.add(toolRegistry.registerTool({
+			name: 'run_command',
+			description: 'Run a command',
+			inputSchema: { type: 'object' },
+			execute: async (_input, _token, context) => {
+				context?.reportProgress({ content: 'Status: Running\n\nStdout:\n\n```text\nhello\n```' });
+				await new Promise<void>(resolve => {
+					releaseCommand = resolve;
+				});
+				context?.reportProgress({ content: 'Status: Running\n\nStdout:\n\n```text\nhello\nworld\n```' });
+				return { content: 'Exit code: 0\n\nStdout:\n\n```text\nhello\nworld\n```' };
+			},
+		}));
+		const service = store.add(new XuanjiChatService(aiService, toolRegistry, new TestConfigurationService()));
+
+		const sendPromise = service.sendMessage('Run the command');
+		await new Promise(resolve => setTimeout(resolve, 0));
+
+		assert.deepStrictEqual(
+			service.model.messages.map(message => ({
+				role: message.role,
+				kind: message.kind,
+				label: message.label,
+				content: message.content,
+				isStreaming: message.isStreaming,
+			})),
+			[
+				{ role: 'user', kind: 'message', label: undefined, content: 'Run the command', isStreaming: false },
+				{ role: 'assistant', kind: 'tool_use', label: 'run_command', content: '```json\n{\n  "command": "echo hello"\n}\n```', isStreaming: false },
+				{ role: 'assistant', kind: 'tool_result', label: 'run_command', content: 'Status: Running\n\nStdout:\n\n```text\nhello\n```', isStreaming: true },
+			],
+		);
+
+		releaseCommand?.();
+		await sendPromise;
+
+		assert.deepStrictEqual(
+			service.model.messages.map(message => ({
+				role: message.role,
+				kind: message.kind,
+				label: message.label,
+				content: message.content,
+				isStreaming: message.isStreaming,
+			})),
+			[
+				{ role: 'user', kind: 'message', label: undefined, content: 'Run the command', isStreaming: false },
+				{ role: 'assistant', kind: 'tool_use', label: 'run_command', content: '```json\n{\n  "command": "echo hello"\n}\n```', isStreaming: false },
+				{ role: 'assistant', kind: 'tool_result', label: 'run_command', content: 'Exit code: 0\n\nStdout:\n\n```text\nhello\nworld\n```', isStreaming: false },
+				{ role: 'assistant', kind: 'message', label: undefined, content: 'Command finished.', isStreaming: false },
+			],
+		);
+	});
 });

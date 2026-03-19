@@ -5,7 +5,7 @@
 
 import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
-import { ICommandExecutionRequest, ICommandExecutionResult, ICommandSandboxService } from '../common/commandSandboxService.js';
+import { ICommandExecutionProgress, ICommandExecutionRequest, ICommandExecutionResult, ICommandSandboxService } from '../common/commandSandboxService.js';
 import { assessCommandPolicy, DEFAULT_ALLOWED_COMMANDS, DEFAULT_BLOCKED_PATTERNS, DEFAULT_COMMAND_TIMEOUT_MS, DEFAULT_SANDBOX_MODE } from '../common/commandSandboxPolicy.js';
 import { XuanjiAiSettings } from '../../../../platform/ai/common/aiSettings.js';
 
@@ -27,7 +27,7 @@ export class BrowserCommandSandboxService implements ICommandSandboxService {
 		});
 	}
 
-	async executeCommand(_request: ICommandExecutionRequest, _token: CancellationToken): Promise<ICommandExecutionResult> {
+	async executeCommand(_request: ICommandExecutionRequest, _token: CancellationToken, _onProgress?: (progress: ICommandExecutionProgress) => void): Promise<ICommandExecutionResult> {
 		throw new Error(DESKTOP_REQUIRED_MSG);
 	}
 }

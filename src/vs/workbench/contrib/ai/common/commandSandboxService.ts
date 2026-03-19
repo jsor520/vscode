@@ -26,9 +26,17 @@ export interface ICommandExecutionResult {
 	readonly durationMs: number;
 }
 
+export interface ICommandExecutionProgress {
+	readonly command: string;
+	readonly cwd?: string;
+	readonly stdout: string;
+	readonly stderr: string;
+	readonly durationMs: number;
+}
+
 export interface ICommandSandboxService {
 	readonly _serviceBrand: undefined;
 
 	assessCommand(command: string): ICommandSandboxAssessment;
-	executeCommand(request: ICommandExecutionRequest, token: CancellationToken): Promise<ICommandExecutionResult>;
+	executeCommand(request: ICommandExecutionRequest, token: CancellationToken, onProgress?: (progress: ICommandExecutionProgress) => void): Promise<ICommandExecutionResult>;
 }

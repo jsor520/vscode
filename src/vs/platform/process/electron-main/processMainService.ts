@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { ChildProcessWithoutNullStreams, spawn } from 'child_process';
+import { Emitter, Event } from '../../../base/common/event.js';
 import { ProcessItem } from '../../../base/common/processes.js';
 import { clamp } from '../../../base/common/numbers.js';
 import { IProcessEnvironment, isWindows, OS } from '../../../base/common/platform.js';
@@ -15,7 +16,7 @@ import { IDiagnosticsService, IRemoteDiagnosticError, isRemoteDiagnosticError, P
 import { IDiagnosticsMainService } from '../../diagnostics/electron-main/diagnosticsMainService.js';
 import { ILogService } from '../../log/common/log.js';
 import { UtilityProcess } from '../../utilityProcess/electron-main/utilityProcess.js';
-import { IProcessCommandRequest, IProcessCommandResult, IProcessService, IResolvedProcessInformation } from '../common/process.js';
+import { IProcessCommandProgressEvent, IProcessCommandRequest, IProcessCommandResult, IProcessService, IResolvedProcessInformation } from '../common/process.js';
 
 const MAX_OUTPUT_LENGTH = 120_000;
 const DEFAULT_COMMAND_TIMEOUT_MS = 60_000;
@@ -54,6 +55,8 @@ export class ProcessMainService implements IProcessService {
 	declare readonly _serviceBrand: undefined;
 	private readonly _runningCommands = new Map<string, IRunningCommand>();
 	private readonly _pendingCancelledCommands = new Set<string>();
+	private readonly _onDidRunCommandProgress = new Emitter<IProcessCommandProgressEvent>();
+	readonly onDidRunCommandProgress: Event<IProcessCommandProgressEvent> = this._onDidRunCommandProgress.event;
 
 	constructor(
 		@ILogService private readonly logService: ILogService,
@@ -153,6 +156,15 @@ export class ProcessMainService implements IProcessService {
 				return `${next.slice(0, MAX_OUTPUT_LENGTH)}\n...[truncated]`;
 			};
 
+			const reportProgress = () => {
+				this._onDidRunCommandProgress.fire({
+					id: request.id,
+					stdout,
+					stderr,
+					durationMs: Date.now() - startedAt,
+				});
+			};
+
 			const cleanup = () => {
 				if (timeoutHandle.value) {
 					clearTimeout(timeoutHandle.value);
@@ -216,9 +228,11 @@ export class ProcessMainService implements IProcessService {
 
 			child.stdout.on('data', data => {
 				stdout = append(stdout, data);
+				reportProgress();
 			});
 			child.stderr.on('data', data => {
 				stderr = append(stderr, data);
+				reportProgress();
 			});
 			child.on('error', error => {
 				fail(error);

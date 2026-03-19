@@ -15,6 +15,7 @@ export interface IXuanjiChatMessage {
 	readonly kind: XuanjiChatMessageKind;
 	content: string;
 	readonly label?: string;
+	readonly toolCallId?: string;
 	readonly attachments?: IContextAttachment[];
 	isStreaming: boolean;
 }
@@ -70,16 +71,20 @@ export class XuanjiChatModel extends Disposable {
 		this._appendToAssistantMessage('thinking', text, 'Reasoning');
 	}
 
-	addToolUse(label: string, content: string): void {
-		this._pushAssistantEvent('tool_use', content, label);
+	addToolUse(label: string, content: string, toolCallId?: string): void {
+		this._pushAssistantEvent('tool_use', content, label, false, toolCallId);
 	}
 
-	addToolResult(label: string, content: string): void {
-		this._pushAssistantEvent('tool_result', content, label);
+	updateToolResult(label: string, content: string, toolCallId?: string): void {
+		this._upsertAssistantEvent('tool_result', content, label, true, toolCallId);
+	}
+
+	addToolResult(label: string, content: string, toolCallId?: string): void {
+		this._upsertAssistantEvent('tool_result', content, label, false, toolCallId);
 	}
 
 	addError(content: string): void {
-		this._pushAssistantEvent('error', content, 'Error');
+		this._pushAssistantEvent('error', content, 'Error', false);
 	}
 
 	finishGeneration(): void {
@@ -129,16 +134,33 @@ export class XuanjiChatModel extends Disposable {
 		this._onDidChange.fire();
 	}
 
-	private _pushAssistantEvent(kind: Exclude<XuanjiChatMessageKind, 'message' | 'thinking'>, content: string, label: string): void {
-		this._messages.push({
+	private _upsertAssistantEvent(kind: Exclude<XuanjiChatMessageKind, 'message' | 'thinking'>, content: string, label: string, isStreaming: boolean, toolCallId?: string): void {
+		const existing = toolCallId
+			? [...this._messages].reverse().find(message => message.role === 'assistant' && message.kind === kind && message.toolCallId === toolCallId)
+			: undefined;
+
+		if (existing) {
+			existing.content = content;
+			existing.isStreaming = isStreaming;
+			this._onDidChange.fire();
+			return;
+		}
+
+		this._pushAssistantEvent(kind, content, label, isStreaming, toolCallId);
+	}
+
+	private _pushAssistantEvent(kind: Exclude<XuanjiChatMessageKind, 'message' | 'thinking'>, content: string, label: string, isStreaming: boolean, toolCallId?: string): void {
+		const message: IXuanjiChatMessage = {
 			id: this._generateId(),
 			role: 'assistant',
 			kind,
 			label,
+			toolCallId,
 			content,
-			isStreaming: false,
-		});
-		this._onDidAddMessage.fire(this._messages[this._messages.length - 1]);
+			isStreaming,
+		};
+		this._messages.push(message);
+		this._onDidAddMessage.fire(message);
 		this._onDidChange.fire();
 	}
 

@@ -16,10 +16,19 @@ export interface IToolInvocationResult {
 	readonly isError?: boolean;
 }
 
+export interface IToolProgressUpdate {
+	readonly content: string;
+	readonly isError?: boolean;
+}
+
+export interface IToolExecutionContext {
+	reportProgress(update: IToolProgressUpdate): void;
+}
+
 export interface IXuanjiTool extends ITool {
 	readonly modelIds?: readonly string[];
 	readonly requiresConfirmation?: boolean;
-	execute(input: unknown, token: CancellationToken): Promise<IToolInvocationResult>;
+	execute(input: unknown, token: CancellationToken, context?: IToolExecutionContext): Promise<IToolInvocationResult>;
 }
 
 export interface IToolRegistry {
@@ -31,7 +40,7 @@ export interface IToolRegistry {
 	getTool(name: string): IXuanjiTool | undefined;
 	listTools(): readonly IXuanjiTool[];
 	listModelTools(modelId?: string): readonly ITool[];
-	invokeTool(name: string, input: unknown, token: CancellationToken): Promise<IToolInvocationResult>;
+	invokeTool(name: string, input: unknown, token: CancellationToken, context?: IToolExecutionContext): Promise<IToolInvocationResult>;
 }
 
 export class ToolRegistry extends Disposable implements IToolRegistry {
@@ -83,12 +92,12 @@ export class ToolRegistry extends Disposable implements IToolRegistry {
 			}));
 	}
 
-	async invokeTool(name: string, input: unknown, token: CancellationToken): Promise<IToolInvocationResult> {
+	async invokeTool(name: string, input: unknown, token: CancellationToken, context?: IToolExecutionContext): Promise<IToolInvocationResult> {
 		const tool = this._tools.get(name);
 		if (!tool) {
 			throw new Error(`Tool "${name}" is not registered.`);
 		}
 
-		return tool.execute(input, token);
+		return tool.execute(input, token, context);
 	}
 }

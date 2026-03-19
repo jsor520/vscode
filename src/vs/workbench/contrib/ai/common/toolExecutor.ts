@@ -5,7 +5,7 @@
 
 import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { IAIService, IChatMessage, IChatOptions, IChatToolCall } from '../../../../platform/ai/common/aiService.js';
-import { IToolInvocationResult, IToolRegistry } from './toolRegistry.js';
+import { IToolInvocationResult, IToolProgressUpdate, IToolRegistry } from './toolRegistry.js';
 
 const DEFAULT_TOOL_CALL_LIMIT = 25;
 
@@ -17,6 +17,7 @@ export interface IXuanjiToolExecutionObserver {
 	onText(text: string): void;
 	onThinking(text: string): void;
 	onToolUse(toolCall: IChatToolCall): void;
+	onToolProgress(toolCall: IChatToolCall, result: IToolProgressUpdate): void;
 	onToolResult(toolCall: IChatToolCall, result: IToolInvocationResult): void;
 	onError(message: string): void;
 }
@@ -102,7 +103,7 @@ export class XuanjiToolExecutor {
 			}
 
 			for (const toolCall of assistantToolCalls) {
-				const result = await this._invokeTool(toolCall, token);
+				const result = await this._invokeTool(toolCall, token, progress => observer.onToolProgress(toolCall, progress));
 				observer.onToolResult(toolCall, result);
 				conversation.push({
 					role: 'tool',
@@ -116,7 +117,7 @@ export class XuanjiToolExecutor {
 		return { messages: conversation, toolCallCount, limitHit: false };
 	}
 
-	private async _invokeTool(toolCall: IChatToolCall, token: CancellationToken): Promise<IToolInvocationResult> {
+	private async _invokeTool(toolCall: IChatToolCall, token: CancellationToken, onProgress: (progress: IToolProgressUpdate) => void): Promise<IToolInvocationResult> {
 		const tool = this._toolRegistry.getTool(toolCall.name);
 		if (!tool) {
 			return { content: `Tool "${toolCall.name}" is not registered.`, isError: true };
@@ -126,7 +127,15 @@ export class XuanjiToolExecutor {
 		}
 
 		try {
-			const result = await this._toolRegistry.invokeTool(toolCall.name, toolCall.input, token);
+			const result = await this._toolRegistry.invokeTool(toolCall.name, toolCall.input, token, {
+				reportProgress: progress => {
+					try {
+						onProgress(progress);
+					} catch {
+						// Ignore observer failures so tool execution can complete.
+					}
+				},
+			});
 			return {
 				content: result.content || '<empty result>',
 				isError: result.isError,

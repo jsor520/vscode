@@ -4,12 +4,13 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { CancellationToken } from '../../../../base/common/cancellation.js';
+import { Event } from '../../../../base/common/event.js';
 import { clamp } from '../../../../base/common/numbers.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
 import { XuanjiAiSettings } from '../../../../platform/ai/common/aiSettings.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IProcessService } from '../../../../platform/process/common/process.js';
-import { ICommandExecutionRequest, ICommandExecutionResult, ICommandSandboxService } from '../common/commandSandboxService.js';
+import { ICommandExecutionProgress, ICommandExecutionRequest, ICommandExecutionResult, ICommandSandboxService } from '../common/commandSandboxService.js';
 import { assessCommandPolicy, DEFAULT_ALLOWED_COMMANDS, DEFAULT_BLOCKED_PATTERNS, DEFAULT_COMMAND_TIMEOUT_MS, DEFAULT_SANDBOX_MODE, ICommandSandboxAssessment, ICommandSandboxConfig, XuanjiSandboxMode } from '../common/commandSandboxPolicy.js';
 
 export class ElectronCommandSandboxService implements ICommandSandboxService {
@@ -24,7 +25,7 @@ export class ElectronCommandSandboxService implements ICommandSandboxService {
 		return assessCommandPolicy(command, this._getConfig());
 	}
 
-	async executeCommand(request: ICommandExecutionRequest, token: CancellationToken): Promise<ICommandExecutionResult> {
+	async executeCommand(request: ICommandExecutionRequest, token: CancellationToken, onProgress?: (progress: ICommandExecutionProgress) => void): Promise<ICommandExecutionResult> {
 		const config = this._getConfig();
 		const command = request.command.trim();
 		if (!command) {
@@ -33,6 +34,15 @@ export class ElectronCommandSandboxService implements ICommandSandboxService {
 
 		const commandId = generateUuid();
 		const timeoutMs = clamp(request.timeoutMs ?? config.timeoutMs, 1000, 10 * 60 * 1000);
+		const progressListener = Event.filter(this._processService.onDidRunCommandProgress, event => event.id === commandId)(event => {
+			onProgress?.({
+				command,
+				cwd: request.cwd,
+				stdout: event.stdout,
+				stderr: event.stderr,
+				durationMs: event.durationMs,
+			});
+		});
 		const cancellationListener = token.onCancellationRequested(() => {
 			void this._processService.cancelCommand(commandId);
 		});
@@ -45,6 +55,7 @@ export class ElectronCommandSandboxService implements ICommandSandboxService {
 				timeoutMs,
 			});
 		} finally {
+			progressListener.dispose();
 			cancellationListener.dispose();
 		}
 	}

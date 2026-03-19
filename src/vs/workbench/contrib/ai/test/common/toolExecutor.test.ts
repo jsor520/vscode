@@ -48,6 +48,7 @@ function createObserver() {
 		text: [] as string[],
 		thinking: [] as string[],
 		toolUses: [] as string[],
+		toolProgress: [] as string[],
 		toolResults: [] as string[],
 		errors: [] as string[],
 	};
@@ -56,6 +57,7 @@ function createObserver() {
 		onText: text => state.text.push(text),
 		onThinking: text => state.thinking.push(text),
 		onToolUse: toolCall => state.toolUses.push(toolCall.name),
+		onToolProgress: (toolCall, result) => state.toolProgress.push(`${toolCall.name}:${result.content}`),
 		onToolResult: (toolCall, result) => state.toolResults.push(`${toolCall.name}:${result.content}`),
 		onError: message => state.errors.push(message),
 	};
@@ -120,5 +122,37 @@ suite('XuanjiToolExecutor', () => {
 		assert.deepStrictEqual(state.toolUses, ['read_file']);
 		assert.deepStrictEqual(state.errors, ['Tool call limit reached (1).']);
 		assert.strictEqual(result.messages.length, 1);
+	});
+
+	test('reports tool progress updates before the final result', async () => {
+		const toolRegistry = store.add(new ToolRegistry());
+		store.add(toolRegistry.registerTool({
+			name: 'run_command',
+			description: 'Run a command',
+			inputSchema: { type: 'object' },
+			execute: async (_input, _token, context) => {
+				context?.reportProgress({ content: 'Running\n\nStdout:\n\n```text\nhello\n```' });
+				context?.reportProgress({ content: 'Running\n\nStdout:\n\n```text\nhello\nworld\n```' });
+				return { content: 'Exit code: 0\n\nStdout:\n\n```text\nhello\nworld\n```' };
+			},
+		}));
+		const executor = new XuanjiToolExecutor(new StubAIService([
+			[
+				{ type: 'tool_use', content: '', toolCallId: 'call_cmd_1', toolName: 'run_command', toolInput: { command: 'echo hello' } },
+				{ type: 'done', content: '' },
+			],
+		]), toolRegistry);
+		const { observer, state } = createObserver();
+
+		await executor.executeConversation([{ role: 'user', content: 'Run it' }], {}, observer, CancellationToken.None);
+
+		assert.deepStrictEqual(state.toolUses, ['run_command']);
+		assert.deepStrictEqual(state.toolProgress, [
+			'run_command:Running\n\nStdout:\n\n```text\nhello\n```',
+			'run_command:Running\n\nStdout:\n\n```text\nhello\nworld\n```',
+		]);
+		assert.deepStrictEqual(state.toolResults, [
+			'run_command:Exit code: 0\n\nStdout:\n\n```text\nhello\nworld\n```',
+		]);
 	});
 });

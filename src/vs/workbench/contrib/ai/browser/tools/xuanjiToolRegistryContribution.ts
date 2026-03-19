@@ -21,10 +21,10 @@ import { XuanjiAiSettings } from '../../../../../platform/ai/common/aiSettings.j
 import { IWorkbenchContribution } from '../../../../common/contributions.js';
 import { QueryBuilder } from '../../../../services/search/common/queryBuilder.js';
 import { ISearchService, resultIsMatch } from '../../../../services/search/common/search.js';
-import { ICommandExecutionResult, ICommandSandboxService } from '../../common/commandSandboxService.js';
+import { ICommandExecutionProgress, ICommandExecutionResult, ICommandSandboxService } from '../../common/commandSandboxService.js';
 import { ICommandSandboxAssessment } from '../../common/commandSandboxPolicy.js';
 import { applyTextEdit } from '../../common/toolTextEdit.js';
-import { IToolRegistry, IXuanjiTool } from '../../common/toolRegistry.js';
+import { IToolExecutionContext, IToolRegistry, IXuanjiTool } from '../../common/toolRegistry.js';
 
 interface IPathToolInput {
 	readonly path?: string;
@@ -377,7 +377,7 @@ export class XuanjiToolRegistryContribution implements IWorkbenchContribution {
 				},
 				required: ['command'],
 			},
-			execute: async (rawInput, token) => {
+			execute: async (rawInput, token, context) => {
 				const input = rawInput as IRunCommandInput;
 				if (!input.command?.trim()) {
 					throw new Error('run_command requires a non-empty command.');
@@ -399,11 +399,19 @@ export class XuanjiToolRegistryContribution implements IWorkbenchContribution {
 					}
 				}
 
+				this._reportCommandProgress(context, {
+					command: assessment.command,
+					cwd: cwd.fsPath,
+					stdout: '',
+					stderr: '',
+					durationMs: 0,
+				});
+
 				const result = await this._commandSandboxService.executeCommand({
 					command: input.command,
 					cwd: cwd.fsPath,
 					timeoutMs: input.timeoutMs,
-				}, token);
+				}, token, progress => this._reportCommandProgress(context, progress));
 
 				return {
 					content: this._formatCommandResult(result),
@@ -606,26 +614,69 @@ export class XuanjiToolRegistryContribution implements IWorkbenchContribution {
 	}
 
 	private _formatCommandResult(result: ICommandExecutionResult): string {
+		return this._formatCommandSnapshot({
+			command: result.command,
+			cwd: result.cwd,
+			durationMs: result.durationMs,
+			stdout: result.stdout,
+			stderr: result.stderr,
+			exitCode: result.exitCode,
+			signal: result.signal,
+			timedOut: result.timedOut,
+		});
+	}
+
+	private _reportCommandProgress(context: IToolExecutionContext | undefined, progress: ICommandExecutionProgress): void {
+		context?.reportProgress({
+			content: this._formatCommandSnapshot({
+				command: progress.command,
+				cwd: progress.cwd,
+				durationMs: progress.durationMs,
+				stdout: progress.stdout,
+				stderr: progress.stderr,
+				status: localize('xuanjiTools.runCommand.status.running', 'Running'),
+			}),
+		});
+	}
+
+	private _formatCommandSnapshot(options: {
+		readonly command: string;
+		readonly cwd?: string;
+		readonly durationMs: number;
+		readonly stdout: string;
+		readonly stderr: string;
+		readonly status?: string;
+		readonly exitCode?: number | null;
+		readonly signal?: string;
+		readonly timedOut?: boolean;
+	}): string {
 		const sections = [
-			`Command: ${result.command}`,
-			`Working directory: ${result.cwd || '(default)'}`,
-			`Exit code: ${result.exitCode ?? '(unknown)'}`,
-			`Duration: ${result.durationMs}ms`,
+			`Command: ${options.command}`,
+			`Working directory: ${options.cwd || '(default)'}`,
+			`Duration: ${options.durationMs}ms`,
 		];
-		if (result.signal) {
-			sections.push(`Signal: ${result.signal}`);
+		if (options.status) {
+			sections.splice(2, 0, `Status: ${options.status}`);
 		}
-		if (result.timedOut) {
+		if (options.exitCode !== undefined) {
+			sections.splice(2, 0, `Exit code: ${options.exitCode ?? '(unknown)'}`);
+		}
+		if (options.signal) {
+			sections.push(`Signal: ${options.signal}`);
+		}
+		if (options.timedOut) {
 			sections.push('Timed out: true');
 		}
-		if (result.stdout) {
-			sections.push(`Stdout:\n\n\`\`\`text\n${this._truncateCommandOutput(result.stdout)}\n\`\`\``);
+		if (options.stdout) {
+			sections.push(`Stdout:\n\n\`\`\`text\n${this._truncateCommandOutput(options.stdout)}\n\`\`\``);
 		}
-		if (result.stderr) {
-			sections.push(`Stderr:\n\n\`\`\`text\n${this._truncateCommandOutput(result.stderr)}\n\`\`\``);
+		if (options.stderr) {
+			sections.push(`Stderr:\n\n\`\`\`text\n${this._truncateCommandOutput(options.stderr)}\n\`\`\``);
 		}
-		if (!result.stdout && !result.stderr) {
-			sections.push('No output was produced.');
+		if (!options.stdout && !options.stderr) {
+			sections.push(options.status
+				? localize('xuanjiTools.runCommand.waitingOutput', 'Waiting for command output...')
+				: 'No output was produced.');
 		}
 		return sections.join('\n\n');
 	}

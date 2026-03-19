@@ -8,7 +8,7 @@ import { Disposable } from '../../../../../base/common/lifecycle.js';
 import { IAIService, IChatMessage, IChatOptions, IChatToolCall, IContextAttachment } from '../../../../../platform/ai/common/aiService.js';
 import { IConfigurationService } from '../../../../../platform/configuration/common/configuration.js';
 import { XuanjiAiSettings } from '../../../../../platform/ai/common/aiSettings.js';
-import { IToolInvocationResult, IToolRegistry } from '../../common/toolRegistry.js';
+import { IToolInvocationResult, IToolProgressUpdate, IToolRegistry } from '../../common/toolRegistry.js';
 import { XuanjiToolExecutor } from '../../common/toolExecutor.js';
 import { XuanjiChatModel } from './xuanjiChatModel.js';
 
@@ -78,7 +78,8 @@ export class XuanjiChatService extends Disposable {
 				{
 					onText: text => this._model.appendToLastAssistant(text),
 					onThinking: text => this._model.appendThinking(text),
-					onToolUse: toolCall => this._model.addToolUse(formatToolLabel(toolCall.name), formatToolPayload(toolCall.input)),
+					onToolUse: toolCall => this._model.addToolUse(formatToolLabel(toolCall.name), formatToolPayload(toolCall.input), toolCall.id),
+					onToolProgress: (toolCall, result) => this._handleToolProgress(toolCall, result),
 					onToolResult: (toolCall, result) => this._handleToolResult(toolCall, result),
 					onError: message => this._model.addError(message),
 				},
@@ -132,7 +133,13 @@ export class XuanjiChatService extends Disposable {
 	private _handleToolResult(toolCall: IChatToolCall, result: IToolInvocationResult): void {
 		const label = formatToolLabel(toolCall.name);
 		const content = result.content || '<empty result>';
-		this._model.addToolResult(result.isError ? `${label} (failed)` : label, content);
+		this._model.addToolResult(label, content, toolCall.id);
+	}
+
+	private _handleToolProgress(toolCall: IChatToolCall, result: IToolProgressUpdate): void {
+		const label = formatToolLabel(toolCall.name);
+		const content = result.content || '<empty result>';
+		this._model.updateToolResult(label, content, toolCall.id);
 	}
 }
 

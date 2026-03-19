@@ -3,6 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { Event } from '../../../base/common/event.js';
 import { ProcessItem } from '../../../base/common/processes.js';
 import { IRemoteDiagnosticError, PerformanceInfo, SystemInfo } from '../../diagnostics/common/diagnostics.js';
 import { createDecorator } from '../../instantiation/common/instantiation.js';
@@ -57,9 +58,17 @@ export interface IProcessCommandResult {
 	readonly durationMs: number;
 }
 
+export interface IProcessCommandProgressEvent {
+	readonly id: string;
+	readonly stdout: string;
+	readonly stderr: string;
+	readonly durationMs: number;
+}
+
 export interface IProcessService {
 
 	readonly _serviceBrand: undefined;
+	readonly onDidRunCommandProgress: Event<IProcessCommandProgressEvent>;
 
 	resolveProcesses(): Promise<IResolvedProcessInformation>;
 
